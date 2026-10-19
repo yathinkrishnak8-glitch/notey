@@ -2,8 +2,12 @@ package com.pocketdev.notey
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,14 +17,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -28,7 +34,7 @@ import androidx.compose.ui.unit.sp
 import java.io.File
 
 enum class SettingsSubpage {
-    MAIN, APPEARANCE, ANIMATION, NOTES, CANVAS, STORAGE, PERFORMANCE, DATA, ABOUT
+    MAIN, PROFILE, APPEARANCE, ANIMATION, NOTES, CANVAS, STORAGE, PERFORMANCE, DATA, ABOUT
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,6 +43,9 @@ fun SettingsScreen(
     settings: AppSettings,
     onSettingsChanged: (AppSettings) -> Unit,
     noteStore: NoteStore,
+    userProfileStore: UserProfileStore? = null,
+    currentProfile: UserProfile? = null,
+    onProfileChanged: ((UserProfile) -> Unit)? = null,
     onBack: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -58,6 +67,7 @@ fun SettingsScreen(
                 Text(
                     text = when (currentSubpage) {
                         SettingsSubpage.MAIN -> "Settings"
+                        SettingsSubpage.PROFILE -> "User Profile"
                         SettingsSubpage.APPEARANCE -> "Appearance"
                         SettingsSubpage.ANIMATION -> "Animation & Interaction"
                         SettingsSubpage.NOTES -> "Notes & Editing"
@@ -74,11 +84,11 @@ fun SettingsScreen(
             navigationIcon = {
                 if (currentSubpage != SettingsSubpage.MAIN) {
                     IconButton(onClick = { currentSubpage = SettingsSubpage.MAIN }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back to Settings")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to Settings")
                     }
                 } else if (onBack != null) {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             },
@@ -87,13 +97,26 @@ fun SettingsScreen(
             )
         )
 
-        Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
         Box(modifier = Modifier.fillMaxSize()) {
             when (currentSubpage) {
                 SettingsSubpage.MAIN -> {
                     SettingsMainView(
+                        profile = currentProfile,
                         onNavigate = { currentSubpage = it }
+                    )
+                }
+                SettingsSubpage.PROFILE -> {
+                    ProfileSettingsView(
+                        currentProfile = currentProfile,
+                        onSaveProfile = { newProfile ->
+                            userProfileStore?.saveProfile(newProfile)
+                            onProfileChanged?.invoke(newProfile)
+                            currentSubpage = SettingsSubpage.MAIN
+                            Toast.makeText(context, "Profile updated", Toast.LENGTH_SHORT).show()
+                        },
+                        onCancel = { currentSubpage = SettingsSubpage.MAIN }
                     )
                 }
                 SettingsSubpage.APPEARANCE -> {
@@ -154,7 +177,10 @@ fun SettingsScreen(
 }
 
 @Composable
-fun SettingsMainView(onNavigate: (SettingsSubpage) -> Unit) {
+fun SettingsMainView(
+    profile: UserProfile?,
+    onNavigate: (SettingsSubpage) -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -162,6 +188,79 @@ fun SettingsMainView(onNavigate: (SettingsSubpage) -> Unit) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        // User Profile Banner Card
+        Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onNavigate(SettingsSubpage.PROFILE) }
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Profile Avatar Badge
+                val avatarBitmap = remember(profile?.avatarUri) {
+                    if (profile?.avatarUri != null) {
+                        try { BitmapFactory.decodeFile(profile.avatarUri) } catch (_: Exception) { null }
+                    } else null
+                }
+
+                if (avatarBitmap != null) {
+                    Image(
+                        bitmap = avatarBitmap.asImageBitmap(),
+                        contentDescription = "Avatar",
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = UserProfileValidator.getInitials(profile?.displayName ?: "User"),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = profile?.displayName?.ifBlank { "Personal Profile" } ?: "Personal Profile",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Customize your display name & avatar",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Text(
+                    text = "›",
+                    fontSize = 24.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    fontWeight = FontWeight.Light
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
         SettingsCategoryCard(
             icon = "🎨",
             title = "Appearance",
@@ -217,6 +316,133 @@ fun SettingsMainView(onNavigate: (SettingsSubpage) -> Unit) {
             subtitle = "Version, licenses, GitHub source code, attribution",
             onClick = { onNavigate(SettingsSubpage.ABOUT) }
         )
+    }
+}
+
+@Composable
+fun ProfileSettingsView(
+    currentProfile: UserProfile?,
+    onSaveProfile: (UserProfile) -> Unit,
+    onCancel: () -> Unit
+) {
+    var nameInput by remember { mutableStateOf(currentProfile?.displayName ?: "") }
+    var avatarUri by remember { mutableStateOf(currentProfile?.avatarUri) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            avatarUri = uri.toString()
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Avatar Preview
+        val avatarBitmap = remember(avatarUri) {
+            if (avatarUri != null) {
+                try { BitmapFactory.decodeFile(avatarUri) } catch (_: Exception) { null }
+            } else null
+        }
+
+        Box(
+            modifier = Modifier
+                .size(90.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center
+        ) {
+            if (avatarBitmap != null) {
+                Image(
+                    bitmap = avatarBitmap.asImageBitmap(),
+                    contentDescription = "Avatar",
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Text(
+                    text = UserProfileValidator.getInitials(nameInput.ifBlank { "User" }),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(
+                onClick = { photoPickerLauncher.launch("image/*") }
+            ) {
+                Text("📷 Choose Photo")
+            }
+            if (avatarUri != null) {
+                TextButton(onClick = { avatarUri = null }) {
+                    Text("Remove Photo")
+                }
+            }
+        }
+
+        OutlinedTextField(
+            value = nameInput,
+            onValueChange = {
+                nameInput = it
+                errorMessage = UserProfileValidator.validateDisplayName(it)
+            },
+            label = { Text("Display Name") },
+            placeholder = { Text("Enter your preferred name") },
+            isError = errorMessage != null,
+            supportingText = {
+                if (errorMessage != null) {
+                    Text(errorMessage!!, color = MaterialTheme.colorScheme.error)
+                } else {
+                    Text("${nameInput.trim().length} / 40 characters")
+                }
+            },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            OutlinedButton(
+                onClick = onCancel,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Cancel")
+            }
+
+            Button(
+                onClick = {
+                    val validation = UserProfileValidator.validateDisplayName(nameInput)
+                    if (validation == null) {
+                        val updated = (currentProfile ?: UserProfile(displayName = nameInput.trim())).copy(
+                            displayName = nameInput.trim(),
+                            avatarUri = avatarUri,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                        onSaveProfile(updated)
+                    } else {
+                        errorMessage = validation
+                    }
+                },
+                enabled = nameInput.trim().isNotEmpty() && errorMessage == null,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Save Changes")
+            }
+        }
     }
 }
 

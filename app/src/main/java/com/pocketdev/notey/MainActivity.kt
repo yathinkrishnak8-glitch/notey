@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -52,31 +53,40 @@ enum class NavDestination {
 }
 
 enum class ScreenState {
-    SPLASH, ONBOARDING, MAIN, NOTE_READER, NOTE_EDITOR, SEARCH
+    SPLASH, PROFILE_SETUP, MAIN, NOTE_READER, NOTE_EDITOR, SEARCH
 }
 
 class MainActivity : ComponentActivity() {
     private lateinit var noteStore: NoteStore
     private lateinit var canvasStore: CanvasStore
     private lateinit var settingsStore: SettingsStore
+    private lateinit var userProfileStore: UserProfileStore
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         noteStore = NoteStore(applicationContext)
         canvasStore = CanvasStore(applicationContext)
         settingsStore = SettingsStore(applicationContext)
+        userProfileStore = UserProfileStore(applicationContext)
 
         setContent {
             var settings by remember { mutableStateOf(settingsStore.loadSettings()) }
+            var userProfile by remember { mutableStateOf(userProfileStore.getProfile()) }
 
             NoteyTheme(settings = settings) {
                 NoteyApp(
                     noteStore = noteStore,
                     canvasStore = canvasStore,
+                    settingsStore = settingsStore,
+                    userProfileStore = userProfileStore,
                     settings = settings,
+                    userProfile = userProfile,
                     onUpdateSettings = {
                         settings = it
                         settingsStore.saveSettings(it)
+                    },
+                    onUpdateProfile = {
+                        userProfile = it
                     }
                 )
             }
@@ -89,11 +99,15 @@ class MainActivity : ComponentActivity() {
 fun NoteyApp(
     noteStore: NoteStore,
     canvasStore: CanvasStore,
+    settingsStore: SettingsStore,
+    userProfileStore: UserProfileStore,
     settings: AppSettings,
-    onUpdateSettings: (AppSettings) -> Unit
+    userProfile: UserProfile?,
+    onUpdateSettings: (AppSettings) -> Unit,
+    onUpdateProfile: (UserProfile) -> Unit
 ) {
     var screenState by remember {
-        mutableStateOf(if (settings.hasSeenOnboarding) ScreenState.MAIN else ScreenState.SPLASH)
+        mutableStateOf(if (userProfile != null) ScreenState.MAIN else ScreenState.PROFILE_SETUP)
     }
     var currentDestination by remember { mutableStateOf(NavDestination.HOME) }
     var activeNoteId by remember { mutableStateOf<Long?>(null) }
@@ -103,31 +117,19 @@ fun NoteyApp(
 
     val animDuration = if (!settings.animationsEnabled || settings.reduceMotion) 0 else settings.animationSpeed.durationMs
 
-    // Handle back button
+    // Handle system back button
     BackHandler(enabled = screenState != ScreenState.MAIN) {
         when (screenState) {
             ScreenState.NOTE_READER, ScreenState.NOTE_EDITOR, ScreenState.SEARCH -> {
                 screenState = ScreenState.MAIN
             }
-            ScreenState.ONBOARDING -> {
-                screenState = ScreenState.SPLASH
+            ScreenState.PROFILE_SETUP -> {
+                // If profile is not yet configured, back exits or stays on profile setup
             }
             ScreenState.SPLASH -> {
                 // Let system exit
             }
             else -> {}
-        }
-    }
-
-    // Splash Screen timeout
-    LaunchedEffect(screenState) {
-        if (screenState == ScreenState.SPLASH) {
-            delay(1200L)
-            if (settings.hasSeenOnboarding) {
-                screenState = ScreenState.MAIN
-            } else {
-                screenState = ScreenState.ONBOARDING
-            }
         }
     }
 
@@ -146,14 +148,17 @@ fun NoteyApp(
         when (state) {
             ScreenState.SPLASH -> {
                 SplashScreen(onFinish = {
-                    screenState = if (settings.hasSeenOnboarding) ScreenState.MAIN else ScreenState.ONBOARDING
+                    screenState = if (userProfile != null) ScreenState.MAIN else ScreenState.PROFILE_SETUP
                 })
             }
-            ScreenState.ONBOARDING -> {
-                OnboardingScreen(onGetStarted = {
-                    onUpdateSettings(settings.copy(hasSeenOnboarding = true))
-                    screenState = ScreenState.MAIN
-                })
+            ScreenState.PROFILE_SETUP -> {
+                ProfileSetupScreen(
+                    userProfileStore = userProfileStore,
+                    onProfileSetupComplete = { createdProfile ->
+                        onUpdateProfile(createdProfile)
+                        screenState = ScreenState.MAIN
+                    }
+                )
             }
             ScreenState.NOTE_READER -> {
                 NoteReaderView(
@@ -254,6 +259,7 @@ fun NoteyApp(
                                 HomeDashboardView(
                                     noteStore = noteStore,
                                     canvasStore = canvasStore,
+                                    userProfile = userProfile,
                                     onSearchClick = {
                                         searchScopeFilter = "All"
                                         screenState = ScreenState.SEARCH
@@ -307,6 +313,7 @@ fun NoteyApp(
                                 CanvasScreen(
                                     canvasStore = canvasStore,
                                     settings = settings,
+                                    noteStore = noteStore,
                                     initialDocId = canvasDocIdToOpen
                                 )
                             }
@@ -323,7 +330,10 @@ fun NoteyApp(
                                 SettingsScreen(
                                     settings = settings,
                                     onSettingsChanged = onUpdateSettings,
-                                    noteStore = noteStore
+                                    noteStore = noteStore,
+                                    userProfileStore = userProfileStore,
+                                    currentProfile = userProfile,
+                                    onProfileChanged = onUpdateProfile
                                 )
                             }
                         }
@@ -499,97 +509,10 @@ fun SplashScreen(onFinish: () -> Unit) {
 }
 
 @Composable
-fun OnboardingScreen(onGetStarted: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF0B0F19))
-            .padding(24.dp)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            Spacer(modifier = Modifier.height(20.dp))
-
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(
-                    modifier = Modifier
-                        .size(100.dp)
-                        .clip(RoundedCornerShape(28.dp))
-                        .background(Color(0xFF9333EA)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("🪶", fontSize = 56.sp)
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                Text(
-                    text = "Your Ideas, Your Space",
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = "Notes, visual canvases, workflows, and media attachments. All unified in a fast, private workspace.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = Color(0xFF94A3B8),
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
-            }
-
-            // Visual Card Preview
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = Color(0xFF1E1035),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFA855F7).copy(alpha = 0.4f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 16.dp)
-            ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Text("🔮 Liquid Glass & Freeform Canvas", fontWeight = FontWeight.Bold, color = Color(0xFFC084FC))
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text("• 100% Offline & Sandboxed Storage\n• Interactive Flowcharts & Connectors\n• 5 Ambient Themes & Customizable Accents\n• Full-screen Lightbox & Native Video Player", color = Color(0xFFE2E8F0), style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Button(
-                    onClick = onGetStarted,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9333EA)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(54.dp)
-                ) {
-                    Text("Get Started", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = SettingsStore.DEVELOPER_ATTRIBUTION,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.5f)
-                )
-            }
-        }
-    }
-}
-
-@Composable
 fun HomeDashboardView(
     noteStore: NoteStore,
     canvasStore: CanvasStore,
+    userProfile: UserProfile?,
     onSearchClick: () -> Unit,
     onOpenNote: (Long) -> Unit,
     onOpenCanvas: (String) -> Unit,
@@ -600,6 +523,10 @@ fun HomeDashboardView(
     val recentNotes = remember(activeNotes) { activeNotes.filter { !it.isPinned }.take(5) }
     val canvases = remember { canvasStore.loadAll() }
 
+    val greetingText = remember(userProfile?.displayName) {
+        UserProfileValidator.getTimeAwareGreeting(userProfile?.displayName ?: "")
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -607,18 +534,56 @@ fun HomeDashboardView(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        // Header
-        Column {
-            Text(
-                text = "Good morning, Yathin 👋",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "Here's what's happening today in your workspace.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        // Dynamic Personalized Header with Avatar
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = greetingText,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Here's what's happening today in your workspace.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Avatar Badge
+            val avatarBitmap = remember(userProfile?.avatarUri) {
+                if (userProfile?.avatarUri != null) {
+                    try { BitmapFactory.decodeFile(userProfile.avatarUri) } catch (_: Exception) { null }
+                } else null
+            }
+
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                if (avatarBitmap != null) {
+                    Image(
+                        bitmap = avatarBitmap.asImageBitmap(),
+                        contentDescription = "Avatar",
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Text(
+                        text = UserProfileValidator.getInitials(userProfile?.displayName ?: "User"),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
         }
 
         // Search Bar trigger
@@ -1107,7 +1072,7 @@ fun NoteReaderView(
                 title = { Text("Note Reader", style = MaterialTheme.typography.titleMedium) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
@@ -1188,7 +1153,7 @@ fun NoteReaderView(
                 }
             }
 
-            Divider()
+            HorizontalDivider()
 
             // Note Body
             Text(
@@ -1292,7 +1257,7 @@ fun NoteEditorView(
                             onBack()
                         }
                     }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
@@ -1333,7 +1298,9 @@ fun NoteEditorView(
 
             // Accent Tint Selector
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 NoteAccentColors.take(6).forEachIndexed { idx, color ->
@@ -1454,7 +1421,7 @@ fun GlobalSearchScreen(
             },
             navigationIcon = {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
             }
         )
@@ -1475,7 +1442,7 @@ fun GlobalSearchScreen(
             }
         }
 
-        Divider()
+        HorizontalDivider()
 
         // Results
         LazyColumn(

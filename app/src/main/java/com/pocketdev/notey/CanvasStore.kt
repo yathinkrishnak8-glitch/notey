@@ -10,7 +10,7 @@ enum class CanvasType {
 }
 
 enum class CanvasNodeType {
-    TEXT, STICKY, SHAPE, START, END, TASK, DECISION, ACTION
+    TEXT, STICKY, SHAPE, NOTE, IMAGE, VIDEO, FILE, START, END, TASK, DECISION, ACTION
 }
 
 data class CanvasNode(
@@ -20,10 +20,13 @@ data class CanvasNode(
     val content: String = "",
     val x: Float = 100f,
     val y: Float = 100f,
-    val width: Float = 140f,
-    val height: Float = 70f,
+    val width: Float = 150f,
+    val height: Float = 80f,
     val colorIndex: Int = 0,
-    val shapeType: String = "rounded", // "rounded", "circle", "diamond", "pill"
+    val shapeType: String = "rounded", // "rounded", "circle", "diamond", "pill", "rect"
+    val mediaPath: String = "",
+    val mediaType: String = "", // "image", "video", "file"
+    val zIndex: Int = 0,
 )
 
 data class CanvasConnector(
@@ -79,10 +82,13 @@ class CanvasStore(context: Context) {
                             content = no.optString("content", ""),
                             x = no.optDouble("x", 100.0).toFloat(),
                             y = no.optDouble("y", 100.0).toFloat(),
-                            width = no.optDouble("width", 140.0).toFloat(),
-                            height = no.optDouble("height", 70.0).toFloat(),
+                            width = no.optDouble("width", 150.0).toFloat(),
+                            height = no.optDouble("height", 80.0).toFloat(),
                             colorIndex = no.optInt("colorIndex", 0),
-                            shapeType = no.optString("shapeType", "rounded")
+                            shapeType = no.optString("shapeType", "rounded"),
+                            mediaPath = no.optString("mediaPath", ""),
+                            mediaType = no.optString("mediaType", ""),
+                            zIndex = no.optInt("zIndex", 0)
                         )
                     }
                 }
@@ -149,6 +155,9 @@ class CanvasStore(context: Context) {
                         .put("height", n.height.toDouble())
                         .put("colorIndex", n.colorIndex)
                         .put("shapeType", n.shapeType)
+                        .put("mediaPath", n.mediaPath)
+                        .put("mediaType", n.mediaType)
+                        .put("zIndex", n.zIndex)
                 )
             }
 

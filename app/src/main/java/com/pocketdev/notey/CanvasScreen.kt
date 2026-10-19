@@ -1,39 +1,51 @@
 package com.pocketdev.notey
 
+import android.content.Context
+import android.content.Intent
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.widget.MediaController
+import android.widget.Toast
+import android.widget.VideoView
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.core.content.FileProvider
+import java.io.File
 import java.util.UUID
 import kotlin.math.*
 
@@ -42,32 +54,104 @@ import kotlin.math.*
 fun CanvasScreen(
     canvasStore: CanvasStore,
     settings: AppSettings,
+    noteStore: NoteStore? = null,
     initialDocId: String? = null,
     onBack: (() -> Unit)? = null
 ) {
+    val context = LocalContext.current
     var documents by remember { mutableStateOf(canvasStore.loadAll()) }
     var selectedDocId by remember {
         mutableStateOf(initialDocId ?: documents.firstOrNull()?.id ?: "")
     }
 
-    val currentDoc = documents.firstOrNull { it.id == selectedDocId }
-        ?: documents.firstOrNull()
-        ?: CanvasDocument(name = "New Workspace", type = CanvasType.CANVAS).also {
-            canvasStore.save(it)
+    var currentDoc by remember(selectedDocId) {
+        val doc = documents.firstOrNull { it.id == selectedDocId }
+            ?: documents.firstOrNull()
+            ?: CanvasDocument(name = "Workspace", type = CanvasType.CANVAS).also {
+                canvasStore.save(it)
+                documents = canvasStore.loadAll()
+            }
+        mutableStateOf(doc)
+    }
+
+    // Undo / Redo Stacks
+    val undoStack = remember(currentDoc.id) { mutableStateListOf<CanvasDocument>() }
+    val redoStack = remember(currentDoc.id) { mutableStateListOf<CanvasDocument>() }
+
+    fun pushUndo() {
+        undoStack.add(currentDoc)
+        if (undoStack.size > 25) {
+            undoStack.removeAt(0)
+        }
+        redoStack.clear()
+    }
+
+    fun applyUndo() {
+        if (undoStack.isNotEmpty()) {
+            val previous = undoStack.removeAt(undoStack.lastIndex)
+            redoStack.add(currentDoc)
+            currentDoc = previous
+            canvasStore.save(previous)
             documents = canvasStore.loadAll()
         }
+    }
 
-    var scale by remember(currentDoc.id) { mutableStateOf(currentDoc.zoom.coerceIn(0.5f, 2.5f)) }
+    fun applyRedo() {
+        if (redoStack.isNotEmpty()) {
+            val next = redoStack.removeAt(redoStack.lastIndex)
+            undoStack.add(currentDoc)
+            currentDoc = next
+            canvasStore.save(next)
+            documents = canvasStore.loadAll()
+        }
+    }
+
+    fun commitDocChange(updated: CanvasDocument, recordUndo: Boolean = true) {
+        if (recordUndo) {
+            pushUndo()
+        }
+        currentDoc = updated
+        canvasStore.save(updated)
+        documents = canvasStore.loadAll()
+    }
+
+    var scale by remember(currentDoc.id) { mutableStateOf(currentDoc.zoom.coerceIn(0.4f, 3.0f)) }
     var panOffset by remember(currentDoc.id) { mutableStateOf(Offset(currentDoc.panX, currentDoc.panY)) }
     var selectedNodeId by remember { mutableStateOf<String?>(null) }
+    val selNode = currentDoc.nodes.firstOrNull { it.id == selectedNodeId }
     var showAddNodeDialog by remember { mutableStateOf(false) }
+    var showEditNodeDialog by remember { mutableStateOf(false) }
     var showConnectDialog by remember { mutableStateOf(false) }
     var showDocSelector by remember { mutableStateOf(false) }
     var connectSourceNodeId by remember { mutableStateOf<String?>(null) }
+    var activeMediaPreview by remember { mutableStateOf<CanvasNode?>(null) }
 
-    fun updateDoc(updated: CanvasDocument) {
-        canvasStore.save(updated)
-        documents = canvasStore.loadAll()
+    // File picker launcher for canvas media cards
+    var pendingMediaNodeType by remember { mutableStateOf(CanvasNodeType.IMAGE) }
+    val mediaPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null && noteStore != null) {
+            val att = noteStore.copyUriToInternalStorage(uri)
+            if (att != null) {
+                val isVid = att.type == AttachmentType.VIDEO
+                val newNode = CanvasNode(
+                    id = UUID.randomUUID().toString(),
+                    type = if (isVid) CanvasNodeType.VIDEO else CanvasNodeType.IMAGE,
+                    title = att.displayName,
+                    content = if (isVid) "Video attachment" else "Image attachment",
+                    x = 100f - panOffset.x / scale,
+                    y = 120f - panOffset.y / scale,
+                    width = 200f,
+                    height = 160f,
+                    mediaPath = att.filePath,
+                    mediaType = if (isVid) "video" else "image",
+                    colorIndex = 1
+                )
+                commitDocChange(currentDoc.copy(nodes = currentDoc.nodes + newNode))
+                selectedNodeId = newNode.id
+            }
+        }
     }
 
     Column(
@@ -75,7 +159,7 @@ fun CanvasScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Top Toolbar
+        // Top Main Bar
         Surface(
             tonalElevation = 2.dp,
             color = MaterialTheme.colorScheme.surface,
@@ -84,20 +168,22 @@ fun CanvasScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (onBack != null) {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
 
+                // Workspace title & dropdown trigger
                 Column(
                     modifier = Modifier
                         .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
                         .clickable { showDocSelector = true }
-                        .padding(horizontal = 8.dp)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -121,99 +207,185 @@ fun CanvasScreen(
                     )
                 }
 
+                // Undo / Redo controls
+                IconButton(
+                    onClick = { applyUndo() },
+                    enabled = undoStack.isNotEmpty()
+                ) {
+                    Text(
+                        text = "↺",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (undoStack.isNotEmpty()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                    )
+                }
+
+                IconButton(
+                    onClick = { applyRedo() },
+                    enabled = redoStack.isNotEmpty()
+                ) {
+                    Text(
+                        text = "↻",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (redoStack.isNotEmpty()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                    )
+                }
+
                 // Zoom controls pill
                 Surface(
                     shape = RoundedCornerShape(16.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.padding(end = 8.dp)
+                    modifier = Modifier.padding(horizontal = 4.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                     ) {
                         Text(
-                            text = "-",
+                            text = "–",
                             modifier = Modifier
-                                .clickable { scale = (scale - 0.2f).coerceAtLeast(0.5f) }
+                                .clickable { scale = (scale - 0.2f).coerceAtLeast(0.4f) }
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
                             fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = "${(scale * 100).roundToInt()}%",
                             style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(horizontal = 4.dp)
+                            modifier = Modifier.padding(horizontal = 2.dp)
                         )
                         Text(
                             text = "+",
                             modifier = Modifier
-                                .clickable { scale = (scale + 0.2f).coerceAtMost(2.5f) }
+                                .clickable { scale = (scale + 0.2f).coerceAtMost(3.0f) }
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
 
-                // Add Node button
+                // Add Object Button
                 FilledTonalIconButton(
                     onClick = { showAddNodeDialog = true }
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = "Add Node")
+                    Icon(Icons.Default.Add, contentDescription = "Add Object")
                 }
             }
         }
 
-        // Sub-bar for selected node actions
-        if (selectedNodeId != null) {
-            val selNode = currentDoc.nodes.firstOrNull { it.id == selectedNodeId }
-            if (selNode != null) {
-                Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.fillMaxWidth()
+        // Contextual Selection Toolbar
+        if (selNode != null) {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                tonalElevation = 3.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Text(
+                        text = selNode.title.ifBlank { selNode.type.name },
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 110.dp)
+                    )
+
+                    // Edit / Rename button
+                    FilledTonalButton(
+                        onClick = { showEditNodeDialog = true },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.height(34.dp)
                     ) {
-                        Text(
-                            text = "Selected: ${selNode.title.ifBlank { selNode.type.name }}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.weight(1f)
-                        )
+                        Text("✏️ Edit", fontSize = 12.sp)
+                    }
 
-                        TextButton(
-                            onClick = {
-                                connectSourceNodeId = selNode.id
-                                showConnectDialog = true
+                    // Connect button
+                    FilledTonalButton(
+                        onClick = {
+                            connectSourceNodeId = selNode.id
+                            showConnectDialog = true
+                        },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.height(34.dp)
+                    ) {
+                        Text("🔗 Connect", fontSize = 12.sp)
+                    }
+
+                    // Duplicate button
+                    FilledTonalButton(
+                        onClick = {
+                            val cloned = selNode.copy(
+                                id = UUID.randomUUID().toString(),
+                                x = selNode.x + 24f,
+                                y = selNode.y + 24f,
+                                title = if (selNode.title.isNotBlank()) "${selNode.title} (Copy)" else ""
+                            )
+                            commitDocChange(currentDoc.copy(nodes = currentDoc.nodes + cloned))
+                            selectedNodeId = cloned.id
+                        },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.height(34.dp)
+                    ) {
+                        Text("🔄 Copy", fontSize = 12.sp)
+                    }
+
+                    // Bring Forward (reorder to end of list)
+                    IconButton(
+                        onClick = {
+                            val reordered = currentDoc.nodes.filter { it.id != selNode.id } + selNode
+                            commitDocChange(currentDoc.copy(nodes = reordered))
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Text("▲", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    // Send Backward (reorder to start of list)
+                    IconButton(
+                        onClick = {
+                            val reordered = listOf(selNode) + currentDoc.nodes.filter { it.id != selNode.id }
+                            commitDocChange(currentDoc.copy(nodes = reordered))
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Text("▼", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    // Delete button
+                    IconButton(
+                        onClick = {
+                            val remainingNodes = currentDoc.nodes.filter { it.id != selNode.id }
+                            val remainingConns = currentDoc.connectors.filter {
+                                it.fromNodeId != selNode.id && it.toNodeId != selNode.id
                             }
-                        ) {
-                            Text("Connect ➜")
-                        }
+                            selectedNodeId = null
+                            commitDocChange(currentDoc.copy(nodes = remainingNodes, connectors = remainingConns))
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete Node", tint = MaterialTheme.colorScheme.error)
+                    }
 
-                        IconButton(
-                            onClick = {
-                                val remainingNodes = currentDoc.nodes.filter { it.id != selNode.id }
-                                val remainingConns = currentDoc.connectors.filter {
-                                    it.fromNodeId != selNode.id && it.toNodeId != selNode.id
-                                }
-                                selectedNodeId = null
-                                updateDoc(currentDoc.copy(nodes = remainingNodes, connectors = remainingConns))
-                            }
-                        ) {
-                            Icon(Icons.Default.Delete, contentDescription = "Delete Node", tint = MaterialTheme.colorScheme.error)
-                        }
-
-                        IconButton(onClick = { selectedNodeId = null }) {
-                            Icon(Icons.Default.Close, contentDescription = "Deselect")
-                        }
+                    // Close selection
+                    IconButton(
+                        onClick = { selectedNodeId = null },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Deselect")
                     }
                 }
             }
         }
 
-        // Interactive 2D Infinite Canvas Area
+        // Interactive 2D Freeform Canvas Area
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -225,15 +397,15 @@ fun CanvasScreen(
                     }
                 }
         ) {
-            // Background Canvas: Grid/Dots and Connectors/Arrows
             val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
             val connectorDefaultColor = MaterialTheme.colorScheme.primary
 
+            // Background Canvas: Grid/Dots and Connectors/Arrows
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val canvasWidth = size.width
                 val canvasHeight = size.height
 
-                // Draw background dots or grid
+                // Draw background alignment grid/dots
                 if (settings.canvasGrid) {
                     val step = 40f * scale
                     val startX = (panOffset.x % step + step) % step
@@ -245,7 +417,7 @@ fun CanvasScreen(
                         while (y < canvasHeight) {
                             drawCircle(
                                 color = gridColor,
-                                radius = 2f * scale.coerceIn(0.8f, 2f),
+                                radius = 2f * scale.coerceIn(0.8f, 2.2f),
                                 center = Offset(x, y)
                             )
                             y += step
@@ -275,7 +447,7 @@ fun CanvasScreen(
                             connectorDefaultColor
                         }
 
-                        // Draw line
+                        // Draw connector path
                         drawLine(
                             color = connColor,
                             start = fromCenter,
@@ -308,10 +480,8 @@ fun CanvasScreen(
                 }
             }
 
-            // Draggable Composable Nodes
+            // Draggable & Resizable Composable Nodes
             currentDoc.nodes.forEach { node ->
-                val nodeX = panOffset.x + node.x * scale
-                val nodeY = panOffset.y + node.y * scale
                 val isSelected = node.id == selectedNodeId
                 val nodeColor = getNoteColor(node.colorIndex)
 
@@ -319,8 +489,12 @@ fun CanvasScreen(
                     "pill" -> RoundedCornerShape(percent = 50)
                     "circle" -> CircleShape
                     "diamond" -> RoundedCornerShape(12.dp)
+                    "rect" -> RoundedCornerShape(4.dp)
                     else -> RoundedCornerShape(14.dp)
                 }
+
+                val nodeX = panOffset.x + node.x * scale
+                val nodeY = panOffset.y + node.y * scale
 
                 Box(
                     modifier = Modifier
@@ -330,71 +504,177 @@ fun CanvasScreen(
                             height = (node.height * scale).dp.coerceAtLeast(48.dp)
                         )
                         .shadow(
-                            elevation = if (isSelected) 8.dp else 3.dp,
+                            elevation = if (isSelected) 8.dp else 2.dp,
                             shape = shape
                         )
                         .clip(shape)
                         .background(
-                            if (node.type == CanvasNodeType.START) Color(0xFF10B981)
-                            else if (node.type == CanvasNodeType.END) Color(0xFFEF4444)
-                            else if (node.type == CanvasNodeType.DECISION) Color(0xFF0284C7)
-                            else MaterialTheme.colorScheme.surfaceVariant
+                            when (node.type) {
+                                CanvasNodeType.START -> Color(0xFF10B981)
+                                CanvasNodeType.END -> Color(0xFFEF4444)
+                                CanvasNodeType.DECISION -> Color(0xFF0284C7)
+                                CanvasNodeType.STICKY -> Color(0xFFFEF08A)
+                                else -> MaterialTheme.colorScheme.surfaceVariant
+                            }
                         )
                         .border(
                             width = if (isSelected) 3.dp else 1.5.dp,
                             color = if (isSelected) MaterialTheme.colorScheme.primary else nodeColor,
                             shape = shape
                         )
+                        // Drag gesture for moving the node
                         .pointerInput(node.id, scale) {
-                            detectDragGestures { change, dragAmount ->
-                                change.consume()
-                                val updatedNodes = currentDoc.nodes.map {
-                                    if (it.id == node.id) {
-                                        it.copy(
-                                            x = it.x + dragAmount.x / scale,
-                                            y = it.y + dragAmount.y / scale
-                                        )
-                                    } else it
+                            var dragStarted = false
+                            detectDragGestures(
+                                onDragStart = {
+                                    dragStarted = true
+                                    selectedNodeId = node.id
+                                    pushUndo()
+                                },
+                                onDragEnd = {
+                                    dragStarted = false
+                                    canvasStore.save(currentDoc)
+                                },
+                                onDragCancel = {
+                                    dragStarted = false
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    val dx = dragAmount.x / scale
+                                    val dy = dragAmount.y / scale
+                                    val updatedNodes = currentDoc.nodes.map {
+                                        if (it.id == node.id) {
+                                            it.copy(x = it.x + dx, y = it.y + dy)
+                                        } else it
+                                    }
+                                    currentDoc = currentDoc.copy(nodes = updatedNodes)
                                 }
-                                updateDoc(currentDoc.copy(nodes = updatedNodes))
-                            }
+                            )
                         }
                         .clickable {
                             selectedNodeId = if (isSelected) null else node.id
                         }
-                        .padding(8.dp),
-                    contentAlignment = Alignment.Center
+                        .padding(8.dp)
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = node.title.ifBlank { node.type.name },
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = if (node.type in listOf(CanvasNodeType.START, CanvasNodeType.END, CanvasNodeType.DECISION)) Color.White
-                            else MaterialTheme.colorScheme.onSurface,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (node.content.isNotBlank()) {
+                    // Content inside the card
+                    if (node.type == CanvasNodeType.IMAGE && node.mediaPath.isNotBlank()) {
+                        val file = File(node.mediaPath)
+                        val bitmap = remember(node.mediaPath) {
+                            if (file.exists()) {
+                                try { BitmapFactory.decodeFile(node.mediaPath) } catch (_: Exception) { null }
+                            } else null
+                        }
+
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = node.title,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { activeMediaPreview = node }
+                            )
+                        } else {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text("🖼️", fontSize = 24.sp)
+                                Text(node.title, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                            }
+                        }
+                    } else if (node.type == CanvasNodeType.VIDEO && node.mediaPath.isNotBlank()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clickable { activeMediaPreview = node },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text("🎬", fontSize = 28.sp)
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = node.content,
+                                text = node.title.ifBlank { "Video" },
                                 style = MaterialTheme.typography.labelSmall,
-                                color = if (node.type in listOf(CanvasNodeType.START, CanvasNodeType.END, CanvasNodeType.DECISION)) Color.White.copy(alpha = 0.85f)
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
+                                fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+                            Text("▶ Tap to preview", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+                    } else {
+                        // Standard text/shape/workflow card content
+                        val isDarkCard = node.type in listOf(CanvasNodeType.START, CanvasNodeType.END, CanvasNodeType.DECISION)
+                        val textColor = if (isDarkCard) Color.White
+                        else if (node.type == CanvasNodeType.STICKY) Color(0xFF1E293B)
+                        else MaterialTheme.colorScheme.onSurface
+
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = node.title.ifBlank { node.type.name },
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = textColor,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (node.content.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = node.content,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isDarkCard) Color.White.copy(alpha = 0.85f) else textColor.copy(alpha = 0.75f),
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+
+                    // Resize handle (bottom right corner when selected)
+                    if (isSelected) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary)
+                                .pointerInput(node.id, scale) {
+                                    detectDragGestures(
+                                        onDragStart = { pushUndo() },
+                                        onDragEnd = { canvasStore.save(currentDoc) },
+                                        onDrag = { change, dragAmount ->
+                                            change.consume()
+                                            val dw = dragAmount.x / scale
+                                            val dh = dragAmount.y / scale
+                                            val updatedNodes = currentDoc.nodes.map {
+                                                if (it.id == node.id) {
+                                                    it.copy(
+                                                        width = (it.width + dw).coerceAtLeast(80f),
+                                                        height = (it.height + dh).coerceAtLeast(48f)
+                                                    )
+                                                } else it
+                                            }
+                                            currentDoc = currentDoc.copy(nodes = updatedNodes)
+                                        }
+                                    )
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("↘", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
 
-            // Quick Center / Reset Zoom Floating Button
+            // Quick Center / Reset View Floating Button
             FilledTonalIconButton(
                 onClick = {
                     scale = 1.0f
@@ -409,7 +689,78 @@ fun CanvasScreen(
         }
     }
 
-    // Add Node Dialog
+    // Edit Node Dialog (Title, Content, Color, Shape)
+    if (showEditNodeDialog && selNode != null) {
+        val targetNode = selNode
+        var editTitle by remember(targetNode.id) { mutableStateOf(targetNode.title) }
+        var editContent by remember(targetNode.id) { mutableStateOf(targetNode.content) }
+        var editColorIdx by remember(targetNode.id) { mutableStateOf(targetNode.colorIndex) }
+
+        AlertDialog(
+            onDismissRequest = { showEditNodeDialog = false },
+            title = { Text("Edit Object") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = editTitle,
+                        onValueChange = { editTitle = it },
+                        label = { Text("Title") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = editContent,
+                        onValueChange = { editContent = it },
+                        label = { Text("Subtitle / Content") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Text("Accent Tint:", style = MaterialTheme.typography.labelMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        NoteAccentColors.take(6).forEachIndexed { idx, color ->
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(color)
+                                    .clickable { editColorIdx = idx }
+                                    .border(
+                                        width = if (editColorIdx == idx) 3.dp else 1.dp,
+                                        color = if (editColorIdx == idx) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                                        shape = CircleShape
+                                    )
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val updatedNodes = currentDoc.nodes.map {
+                            if (it.id == targetNode.id) {
+                                it.copy(title = editTitle.trim(), content = editContent.trim(), colorIndex = editColorIdx)
+                            } else it
+                        }
+                        commitDocChange(currentDoc.copy(nodes = updatedNodes))
+                        showEditNodeDialog = false
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditNodeDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Add Object Dialog
     if (showAddNodeDialog) {
         var nodeTitle by remember { mutableStateOf("") }
         var nodeContent by remember { mutableStateOf("") }
@@ -418,9 +769,12 @@ fun CanvasScreen(
 
         AlertDialog(
             onDismissRequest = { showAddNodeDialog = false },
-            title = { Text("Add Object") },
+            title = { Text("Add to Workspace") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     OutlinedTextField(
                         value = nodeTitle,
                         onValueChange = { nodeTitle = it },
@@ -432,16 +786,24 @@ fun CanvasScreen(
                         value = nodeContent,
                         onValueChange = { nodeContent = it },
                         label = { Text("Subtitle / Content") },
-                        singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
 
                     Text("Object Type:", style = MaterialTheme.typography.labelMedium)
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        listOf(CanvasNodeType.TASK, CanvasNodeType.DECISION, CanvasNodeType.STICKY, CanvasNodeType.START).forEach { type ->
+                        listOf(
+                            CanvasNodeType.TASK,
+                            CanvasNodeType.DECISION,
+                            CanvasNodeType.START,
+                            CanvasNodeType.END,
+                            CanvasNodeType.STICKY,
+                            CanvasNodeType.SHAPE
+                        ).forEach { type ->
                             FilterChip(
                                 selected = selectedType == type,
                                 onClick = { selectedType = type },
@@ -450,12 +812,40 @@ fun CanvasScreen(
                         }
                     }
 
+                    // Attach photo / video card option
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                pendingMediaNodeType = CanvasNodeType.IMAGE
+                                showAddNodeDialog = false
+                                mediaPickerLauncher.launch(arrayOf("image/*"))
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("📷 Add Photo")
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                pendingMediaNodeType = CanvasNodeType.VIDEO
+                                showAddNodeDialog = false
+                                mediaPickerLauncher.launch(arrayOf("video/*"))
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("🎬 Add Video")
+                        }
+                    }
+
                     Text("Accent Tint:", style = MaterialTheme.typography.labelMedium)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        NoteAccentColors.take(5).forEachIndexed { idx, color ->
+                        NoteAccentColors.take(6).forEachIndexed { idx, color ->
                             Box(
                                 modifier = Modifier
                                     .size(30.dp)
@@ -478,7 +868,7 @@ fun CanvasScreen(
                         val shape = when (selectedType) {
                             CanvasNodeType.START, CanvasNodeType.END -> "pill"
                             CanvasNodeType.DECISION -> "diamond"
-                            CanvasNodeType.STICKY -> "rounded"
+                            CanvasNodeType.STICKY -> "rect"
                             else -> "rounded"
                         }
                         val newNode = CanvasNode(
@@ -487,13 +877,14 @@ fun CanvasScreen(
                             title = nodeTitle.ifBlank { selectedType.name },
                             content = nodeContent,
                             x = 100f - panOffset.x / scale,
-                            y = 150f - panOffset.y / scale,
+                            y = 120f - panOffset.y / scale,
                             width = if (selectedType == CanvasNodeType.DECISION) 150f else 140f,
                             height = 65f,
                             colorIndex = selectedColorIdx,
                             shapeType = shape
                         )
-                        updateDoc(currentDoc.copy(nodes = currentDoc.nodes + newNode))
+                        commitDocChange(currentDoc.copy(nodes = currentDoc.nodes + newNode))
+                        selectedNodeId = newNode.id
                         showAddNodeDialog = false
                     }
                 ) {
@@ -537,7 +928,7 @@ fun CanvasScreen(
                                         toNodeId = target.id,
                                         label = if (srcNode?.type == CanvasNodeType.DECISION) "Next" else ""
                                     )
-                                    updateDoc(currentDoc.copy(connectors = currentDoc.connectors + newConn))
+                                    commitDocChange(currentDoc.copy(connectors = currentDoc.connectors + newConn))
                                     showConnectDialog = false
                                 }
                                 .padding(12.dp)
@@ -560,7 +951,126 @@ fun CanvasScreen(
         )
     }
 
-    // Document Selector Modal / Dialog
+    // Media Lightbox / Video Viewer Popup
+    if (activeMediaPreview != null) {
+        val mNode = activeMediaPreview!!
+        val file = File(mNode.mediaPath)
+        Dialog(onDismissRequest = { activeMediaPreview = null }) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = mNode.title.ifBlank { "Media Preview" },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = { activeMediaPreview = null }) {
+                            Icon(Icons.Default.Close, contentDescription = "Close")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (!file.exists()) {
+                        Text("File is no longer available on disk", color = MaterialTheme.colorScheme.error)
+                    } else if (mNode.type == CanvasNodeType.IMAGE || mNode.mediaType == "image") {
+                        val bitmap = remember(mNode.mediaPath) {
+                            try { BitmapFactory.decodeFile(mNode.mediaPath) } catch (_: Exception) { null }
+                        }
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = mNode.title,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 350.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                            )
+                        }
+                    } else if (mNode.type == CanvasNodeType.VIDEO || mNode.mediaType == "video") {
+                        AndroidView(
+                            factory = { ctx ->
+                                VideoView(ctx).apply {
+                                    setVideoPath(mNode.mediaPath)
+                                    val controller = MediaController(ctx)
+                                    controller.setAnchorView(this)
+                                    setMediaController(controller)
+                                    start()
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(260.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                try {
+                                    val uri = FileProvider.getUriForFile(
+                                        context,
+                                        "${context.packageName}.fileprovider",
+                                        file
+                                    )
+                                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                                        val mime = if (mNode.type == CanvasNodeType.VIDEO) "video/*" else "image/*"
+                                        setDataAndType(uri, mime)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    context.startActivity(Intent.createChooser(intent, "Open media"))
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Cannot open media", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Open in App")
+                        }
+
+                        // Remove from canvas action
+                        OutlinedButton(
+                            onClick = {
+                                val remainingNodes = currentDoc.nodes.filter { it.id != mNode.id }
+                                val remainingConns = currentDoc.connectors.filter {
+                                    it.fromNodeId != mNode.id && it.toNodeId != mNode.id
+                                }
+                                commitDocChange(currentDoc.copy(nodes = remainingNodes, connectors = remainingConns))
+                                activeMediaPreview = null
+                                selectedNodeId = null
+                            }
+                        ) {
+                            Text("Remove Card")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Workspaces / Canvas Document Selector
     if (showDocSelector) {
         var newDocTitle by remember { mutableStateOf("") }
         var isWorkflow by remember { mutableStateOf(false) }
@@ -603,7 +1113,7 @@ fun CanvasScreen(
                     }
 
                     Spacer(modifier = Modifier.height(6.dp))
-                    Divider()
+                    HorizontalDivider()
                     Spacer(modifier = Modifier.height(6.dp))
 
                     Text("Create New Workspace", style = MaterialTheme.typography.titleSmall)
