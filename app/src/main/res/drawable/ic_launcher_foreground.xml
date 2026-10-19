@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 72x72dp squircle container (Surface 1 #09090B, 1px border) -->
+    <path
+        android:fillColor="#09090B"
+        android:strokeColor="#26FFFFFF"
+        android:strokeWidth="1.2"
+        android:pathData="M36,18 h36 a18,18 0 0 1 18,18 v36 a18,18 0 0 1 -18,18 h-36 a18,18 0 0 1 -18,-18 v-36 a18,18 0 0 1 18,-18 z" />
+
+    <!-- Stepped orthogonal line: (40, 40) -> (60, 40) -> (60, 52) -->
+    <path
+        android:strokeColor="#38BDF8"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M40,40 L60,40 L60,52" />
+
+    <!-- Origin circle at (40, 40) with radius 4.5 -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M40,35.5 a4.5,4.5 0 1 0 0.001,0 Z" />
+
+    <!-- Square terminal at (60, 52) with size 7 -->
+    <path
+        android:fillColor="#EDEDED"
+        android:pathData="M56.5,48.5 h7 v7 h-7 z" />
+</vector>

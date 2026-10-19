@@ -80,9 +80,13 @@ fun CanvasScreen(
     var documents by remember { mutableStateOf(canvasStore.loadAll()) }
     var activeCanvasId by remember { mutableStateOf<String?>(initialDocId) }
 
-    // Intercept back key to return to canvas overview if inside a canvas
-    BackHandler(enabled = activeCanvasId != null) {
-        activeCanvasId = null
+    // Intercept back key to return to canvas overview or exit to workspace home
+    BackHandler(enabled = true) {
+        if (activeCanvasId != null) {
+            activeCanvasId = null
+        } else {
+            onBack?.invoke()
+        }
     }
 
     if (activeCanvasId == null) {
@@ -768,6 +772,8 @@ fun CanvasWorkspaceScreen(
     // Grid Preferences (Local toggle overrides)
     var isGridVisible by remember { mutableStateOf(settings.canvasGrid) }
     var isSnapToGrid by remember { mutableStateOf(settings.canvasSnapToGrid) }
+    var isDetailLocked by remember { mutableStateOf(false) }
+    var showExportSheet by remember { mutableStateOf(false) }
 
     // Device Image / Logo Upload Picker
     val imagePickerLauncher = rememberLauncherForActivityResult(
@@ -899,13 +905,26 @@ fun CanvasWorkspaceScreen(
                 }
             }
 
-            // Canvas Objects Layer (Pixel-perfect scale & world transform)
+            // Canvas Objects Layer (Pixel-perfect scale & world transform with Detail Lock Semantic Clamping)
             currentDoc.nodes.forEach { node ->
                 val isSelected = node.id == selectedNodeId
                 val screenX = panOffset.x + node.x * scale
                 val screenY = panOffset.y + node.y * scale
-                val screenWidthDp = with(density) { ((node.width * scale).coerceAtLeast(60f)).toDp() }
-                val screenHeightDp = with(density) { ((node.height * scale).coerceAtLeast(36f)).toDp() }
+                val effectiveTextScale = if (isDetailLocked) max(scale, 0.75f) else scale
+                val screenWidthDp = with(density) {
+                    if (isDetailLocked) {
+                        ((node.width * effectiveTextScale).coerceAtLeast(110f)).toDp()
+                    } else {
+                        ((node.width * scale).coerceAtLeast(60f)).toDp()
+                    }
+                }
+                val screenHeightDp = with(density) {
+                    if (isDetailLocked) {
+                        ((node.height * effectiveTextScale).coerceAtLeast(65f)).toDp()
+                    } else {
+                        ((node.height * scale).coerceAtLeast(36f)).toDp()
+                    }
+                }
 
                 val nodeShape = RoundedCornerShape(8.dp)
                 val nodeAccent = GoogleKeepPalette.getAccentColor(node.colorIndex)
@@ -940,8 +959,8 @@ fun CanvasWorkspaceScreen(
                                             var newX = it.x + dx
                                             var newY = it.y + dy
                                             if (isSnapToGrid) {
-                                                newX = (round(newX / 20f) * 20f)
-                                                newY = (round(newY / 20f) * 20f)
+                                                newX = (round(newX / 16f) * 16f)
+                                                newY = (round(newY / 16f) * 16f)
                                             }
                                             it.copy(x = newX, y = newY)
                                         } else it
@@ -1362,6 +1381,66 @@ fun CanvasWorkspaceScreen(
                 )
             }
         }
+
+        // Sleek Vertical Floating Dock (CanvasSidebar)
+        CanvasSidebar(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 4.dp),
+            isDetailLocked = isDetailLocked,
+            onToggleDetailLock = { isDetailLocked = !isDetailLocked },
+            isSnapToGrid = isSnapToGrid,
+            onToggleSnapToGrid = { isSnapToGrid = !isSnapToGrid },
+            onQuickAddNode = { nodeType ->
+                val spawnX = (400f - panOffset.x) / scale
+                val spawnY = (400f - panOffset.y) / scale
+                val newNode = when (nodeType) {
+                    CanvasNodeType.TASK -> CanvasNode(
+                        type = CanvasNodeType.TASK,
+                        title = "Task Node",
+                        content = "- [ ] First task\n- [ ] Second item",
+                        x = spawnX,
+                        y = spawnY,
+                        width = 180f,
+                        height = 100f,
+                        colorIndex = 1
+                    )
+                    CanvasNodeType.DECISION -> CanvasNode(
+                        type = CanvasNodeType.DECISION,
+                        title = "Decision Point",
+                        content = "Evaluation criteria",
+                        x = spawnX,
+                        y = spawnY,
+                        width = 160f,
+                        height = 90f,
+                        colorIndex = 2
+                    )
+                    else -> CanvasNode(
+                        type = CanvasNodeType.NOTE,
+                        title = "Markdown Note Block",
+                        content = "Write notes here...",
+                        x = spawnX,
+                        y = spawnY,
+                        width = 180f,
+                        height = 100f,
+                        colorIndex = 0
+                    )
+                }
+                commitDocChange(currentDoc.copy(nodes = currentDoc.nodes + newNode))
+                selectedNodeId = newNode.id
+            },
+            onPickMediaNode = {
+                imagePickerLauncher.launch(arrayOf("image/*", "video/*"))
+            },
+            onAutoLayout = {
+                val tidied = autoLayoutCanvasNodes(currentDoc.nodes, currentDoc.connectors)
+                commitDocChange(currentDoc.copy(nodes = tidied))
+                Toast.makeText(context, "Arranged nodes in hierarchical tree", Toast.LENGTH_SHORT).show()
+            },
+            onExportDiagram = {
+                showExportSheet = true
+            }
+        )
     }
 
     // Edit Node Dialog
@@ -1671,53 +1750,24 @@ fun CanvasWorkspaceScreen(
         }
     }
 
-    // Media Popup Player Dialog
+    // Media Viewer Dialog (Hardware Accelerated Lightbox)
     if (activeMediaPreview != null) {
         val node = activeMediaPreview!!
-        Dialog(onDismissRequest = { activeMediaPreview = null }) {
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.fillMaxWidth().padding(8.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(node.title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        IconButton(onClick = { activeMediaPreview = null }) {
-                            Icon(Icons.Default.Close, contentDescription = "Close")
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
-                    if (node.type == CanvasNodeType.IMAGE && node.mediaPath.isNotBlank()) {
-                        val bmp = BitmapFactory.decodeFile(node.mediaPath)
-                        if (bmp != null) {
-                            Image(
-                                bitmap = bmp.asImageBitmap(),
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxWidth().heightIn(max = 350.dp).clip(RoundedCornerShape(8.dp))
-                            )
-                        }
-                    } else if (node.type == CanvasNodeType.VIDEO && node.mediaPath.isNotBlank()) {
-                        AndroidView(
-                            factory = { ctx ->
-                                VideoView(ctx).apply {
-                                    setVideoURI(Uri.fromFile(File(node.mediaPath)))
-                                    val mc = MediaController(ctx)
-                                    mc.setAnchorView(this)
-                                    setMediaController(mc)
-                                    start()
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth().height(260.dp)
-                        )
-                    }
-                }
-            }
-        }
+        MediaViewerDialog(
+            filePath = node.mediaPath,
+            title = node.title,
+            onDismiss = { activeMediaPreview = null }
+        )
+    }
+
+    // Export Canvas Diagram / Document Studio
+    if (showExportSheet) {
+        ExportShareBottomSheet(
+            title = currentDoc.name,
+            content = currentDoc.nodes.joinToString("\n\n") { "### ${it.title}\n${it.content}" },
+            canvasDoc = currentDoc,
+            onDismiss = { showExportSheet = false }
+        )
     }
 
     // Image Editor Dialog

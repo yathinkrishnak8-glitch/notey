@@ -74,7 +74,7 @@ enum class NavDestination {
 }
 
 enum class ScreenState {
-    SPLASH, PROFILE_SETUP, MAIN, NOTE_READER, NOTE_EDITOR, SEARCH
+    SPLASH, ONBOARDING, PROFILE_SETUP, MAIN, NOTE_READER, NOTE_EDITOR, SEARCH
 }
 
 class MainActivity : ComponentActivity() {
@@ -127,8 +127,12 @@ fun NoteyApp(
     onUpdateSettings: (AppSettings) -> Unit,
     onUpdateProfile: (UserProfile) -> Unit
 ) {
+    val context = LocalContext.current
+    var lastBackPressTime by remember { mutableLongStateOf(0L) }
+    var activeViewerAttachment by remember { mutableStateOf<Attachment?>(null) }
+
     var screenState by remember {
-        mutableStateOf(if (userProfile != null) ScreenState.MAIN else ScreenState.PROFILE_SETUP)
+        mutableStateOf(ScreenState.SPLASH)
     }
     var currentDestination by remember { mutableStateOf(NavDestination.HOME) }
     var activeNoteId by remember { mutableStateOf<Long?>(null) }
@@ -141,14 +145,46 @@ fun NoteyApp(
 
     val animDuration = if (!settings.animationsEnabled || settings.reduceMotion) 0 else settings.animationSpeed.durationMs
 
-    // Handle system back button
-    BackHandler(enabled = screenState != ScreenState.MAIN) {
-        when (screenState) {
-            ScreenState.NOTE_READER, ScreenState.NOTE_EDITOR, ScreenState.SEARCH -> {
+    // PATCH 1: Android System Back Button Bug Fix (Navigation Stack)
+    BackHandler(enabled = true) {
+        when {
+            activeViewerAttachment != null -> {
+                activeViewerAttachment = null
+            }
+            activeQuickEditNote != null -> {
+                activeQuickEditNote = null
+            }
+            showQuickCreateSheet -> {
+                showQuickCreateSheet = false
+            }
+            showCommandPalette -> {
+                showCommandPalette = false
+            }
+            screenState == ScreenState.NOTE_READER || screenState == ScreenState.NOTE_EDITOR || screenState == ScreenState.SEARCH -> {
                 screenState = ScreenState.MAIN
             }
-            ScreenState.PROFILE_SETUP -> {}
-            ScreenState.SPLASH -> {}
+            screenState == ScreenState.ONBOARDING || screenState == ScreenState.PROFILE_SETUP -> {
+                val now = System.currentTimeMillis()
+                if (now - lastBackPressTime < 2000L) {
+                    (context as? ComponentActivity)?.finish()
+                } else {
+                    lastBackPressTime = now
+                    Toast.makeText(context, "Press back again to exit", Toast.LENGTH_SHORT).show()
+                }
+            }
+            screenState == ScreenState.MAIN -> {
+                if (currentDestination != NavDestination.HOME) {
+                    currentDestination = NavDestination.HOME
+                } else {
+                    val now = System.currentTimeMillis()
+                    if (now - lastBackPressTime < 2000L) {
+                        (context as? ComponentActivity)?.finish()
+                    } else {
+                        lastBackPressTime = now
+                        Toast.makeText(context, "Press back again to exit", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
             else -> {}
         }
     }
@@ -168,7 +204,16 @@ fun NoteyApp(
         when (state) {
             ScreenState.SPLASH -> {
                 SplashScreen(onFinish = {
-                    screenState = if (userProfile != null) ScreenState.MAIN else ScreenState.PROFILE_SETUP
+                    screenState = if (userProfileStore.hasProfile()) ScreenState.MAIN else ScreenState.ONBOARDING
+                })
+            }
+            ScreenState.ONBOARDING -> {
+                OnboardingScreen(onFinish = {
+                    if (userProfileStore.hasProfile()) {
+                        screenState = ScreenState.MAIN
+                    } else {
+                        screenState = ScreenState.PROFILE_SETUP
+                    }
                 })
             }
             ScreenState.PROFILE_SETUP -> {
@@ -185,7 +230,8 @@ fun NoteyApp(
                     noteId = activeNoteId ?: 0L,
                     noteStore = noteStore,
                     onBack = { screenState = ScreenState.MAIN },
-                    onEdit = { screenState = ScreenState.NOTE_EDITOR }
+                    onEdit = { screenState = ScreenState.NOTE_EDITOR },
+                    onPreviewMedia = { att -> activeViewerAttachment = att }
                 )
             }
             ScreenState.NOTE_EDITOR -> {
@@ -198,7 +244,8 @@ fun NoteyApp(
                     onSaved = { savedId ->
                         activeNoteId = savedId
                         screenState = ScreenState.NOTE_READER
-                    }
+                    },
+                    onPreviewMedia = { att -> activeViewerAttachment = att }
                 )
             }
             ScreenState.SEARCH -> {
@@ -392,6 +439,7 @@ fun NoteyApp(
                                     settings = settings,
                                     noteStore = noteStore,
                                     initialDocId = canvasDocIdToOpen,
+                                    onBack = { currentDestination = NavDestination.HOME },
                                     onOpenNote = { id ->
                                         activeNoteId = id
                                         screenState = ScreenState.NOTE_READER
@@ -482,6 +530,16 @@ fun NoteyApp(
             noteStore = noteStore,
             onDismiss = { activeQuickEditNote = null },
             onSaved = { activeQuickEditNote = null }
+        )
+    }
+
+    // Full-Screen Hardware-Accelerated Media Viewer Dialog
+    if (activeViewerAttachment != null) {
+        val att = activeViewerAttachment!!
+        MediaViewerDialog(
+            filePath = att.filePath,
+            title = att.displayName,
+            onDismiss = { activeViewerAttachment = null }
         )
     }
 
@@ -606,56 +664,6 @@ fun QuickCreateMenuItem(
     }
 }
 
-@Composable
-fun SplashScreen(onFinish: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(NoteySurfaces.Surface0)
-            .clickable(onClick = onFinish),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(NoteySurfaces.Surface1)
-                    .border(1.dp, NoteySurfaces.HairlineBorder, RoundedCornerShape(20.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    NoteyIcons.Workflow,
-                    contentDescription = "Notey Logo",
-                    tint = Color(0xFF38BDF8),
-                    modifier = Modifier.size(42.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            Text(
-                text = "Notey",
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold,
-                color = NoteySurfaces.TextPrimary
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = "Workspace. Notes. Visual Canvas.",
-                style = MonoMetadataStyle,
-                color = NoteySurfaces.TextSecondary
-            )
-
-            Spacer(modifier = Modifier.height(36.dp))
-        }
-    }
-}
 
 @Composable
 fun CreationMatrixItem(
@@ -1873,308 +1881,6 @@ fun NoteCard(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun CardQuickEditBottomSheet(
-    note: Note,
-    noteStore: NoteStore,
-    onDismiss: () -> Unit,
-    onSaved: (Note) -> Unit
-) {
-    var editTitle by remember { mutableStateOf(note.title) }
-    var editBody by remember { mutableStateOf(note.body) }
-    var editTags by remember { mutableStateOf(note.tags.joinToString(", ")) }
-    var editColorIndex by remember { mutableStateOf(note.colorIndex) }
-    var editAttachments by remember { mutableStateOf(note.attachments) }
-
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            val copied = noteStore.copyUriToInternalStorage(uri)
-            if (copied != null) {
-                editAttachments = editAttachments + copied
-            }
-        }
-    }
-
-    val currentAccent = GoogleKeepPalette.getAccentColor(editColorIndex)
-    val invertedBadgeColor = getInvertedTextColor(currentAccent)
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = NoteySurfaces.Surface2,
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(vertical = 10.dp)
-                    .width(36.dp)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(NoteySurfaces.Surface4)
-            )
-        }
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .imePadding()
-                .navigationBarsPadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            // Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Quick Edit & Files",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = NoteySurfaces.TextPrimary
-                )
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = NoteySurfaces.TextSecondary)
-                }
-            }
-
-            // Title field
-            OutlinedTextField(
-                value = editTitle,
-                onValueChange = { editTitle = it },
-                label = { Text("Title") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = currentAccent,
-                    unfocusedBorderColor = NoteySurfaces.HairlineBorder,
-                    focusedTextColor = NoteySurfaces.TextPrimary,
-                    unfocusedTextColor = NoteySurfaces.TextPrimary
-                )
-            )
-
-            // Content / Excerpt field
-            OutlinedTextField(
-                value = editBody,
-                onValueChange = { editBody = it },
-                label = { Text("Content / Excerpt") },
-                minLines = 3,
-                maxLines = 6,
-                modifier = Modifier.fillMaxWidth(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = currentAccent,
-                    unfocusedBorderColor = NoteySurfaces.HairlineBorder,
-                    focusedTextColor = NoteySurfaces.TextPrimary,
-                    unfocusedTextColor = NoteySurfaces.TextPrimary
-                )
-            )
-
-            // Tags field
-            OutlinedTextField(
-                value = editTags,
-                onValueChange = { editTags = it },
-                label = { Text("Tags (comma-separated)") },
-                placeholder = { Text("work, project, roadmap") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = currentAccent,
-                    unfocusedBorderColor = NoteySurfaces.HairlineBorder,
-                    focusedTextColor = NoteySurfaces.TextPrimary,
-                    unfocusedTextColor = NoteySurfaces.TextPrimary
-                )
-            )
-
-            // Dynamic Accent Selector with Live Inverted Badge Preview
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "ACCENT COLOR",
-                        style = MonoMetadataStyle,
-                        color = NoteySurfaces.TextSecondary
-                    )
-
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = currentAccent
-                    ) {
-                        Text(
-                            text = if (calculateRelativeLuminance(currentAccent) > 0.42f) "Dark Contrast" else "Light Contrast",
-                            style = MonoMetadataStyle,
-                            fontWeight = FontWeight.Bold,
-                            color = invertedBadgeColor,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
-                    }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    GoogleKeepPalette.colors.forEach { keepColor ->
-                        val isSelected = editColorIndex == keepColor.id
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(keepColor.accentColor)
-                                .border(
-                                    width = if (isSelected) 2.5.dp else 1.dp,
-                                    color = if (isSelected) Color.White else NoteySurfaces.HairlineBorder,
-                                    shape = CircleShape
-                                )
-                                .clickable { editColorIndex = keepColor.id },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (isSelected) {
-                                Icon(
-                                    Icons.Default.Check,
-                                    contentDescription = null,
-                                    tint = getInvertedTextColor(keepColor.accentColor),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // File Attachments Management
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "ATTACHMENTS (${editAttachments.size})",
-                        style = MonoMetadataStyle,
-                        color = NoteySurfaces.TextSecondary
-                    )
-
-                    TextButton(
-                        onClick = { filePickerLauncher.launch(arrayOf("*/*")) },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                    ) {
-                        Icon(NoteyIcons.Paperclip, contentDescription = null, modifier = Modifier.size(16.dp), tint = currentAccent)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("+ Add File", color = currentAccent, style = MaterialTheme.typography.labelSmall)
-                    }
-                }
-
-                if (editAttachments.isEmpty()) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = NoteySurfaces.Surface1,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = "No files attached",
-                            style = MonoMetadataStyle,
-                            modifier = Modifier.padding(12.dp)
-                        )
-                    }
-                } else {
-                    editAttachments.forEach { att ->
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = NoteySurfaces.Surface1,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    NoteyIcons.Paperclip,
-                                    contentDescription = null,
-                                    tint = currentAccent,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = att.displayName,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Medium,
-                                        color = NoteySurfaces.TextPrimary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    val sizeKb = (att.sizeBytes / 1024).coerceAtLeast(1)
-                                    Text(
-                                        text = "$sizeKb KB • ${att.mimeType}",
-                                        style = MonoMetadataStyle
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { editAttachments = editAttachments.filter { it.id != att.id } },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(Icons.Default.Close, contentDescription = "Delete attachment", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Action Buttons
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Cancel")
-                }
-                Button(
-                    onClick = {
-                        val parsedTags = editTags.split(",")
-                            .map { it.trim() }
-                            .filter { it.isNotBlank() }
-                        val updated = note.copy(
-                            title = editTitle,
-                            body = editBody,
-                            tags = parsedTags,
-                            colorIndex = editColorIndex,
-                            attachments = editAttachments,
-                            updatedAt = System.currentTimeMillis()
-                        )
-                        noteStore.save(updated)
-                        onSaved(updated)
-                    },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = currentAccent, contentColor = invertedBadgeColor)
-                ) {
-                    Text("Save Changes", fontWeight = FontWeight.Bold)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-    }
-}
 
 @Composable
 fun CommandPaletteDialog(
@@ -2383,10 +2089,12 @@ fun NoteReaderView(
     noteId: Long,
     noteStore: NoteStore,
     onBack: () -> Unit,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
+    onPreviewMedia: ((Attachment) -> Unit)? = null
 ) {
     val context = LocalContext.current
     var note by remember(noteId) { mutableStateOf(noteStore.loadAll().firstOrNull { it.id == noteId }) }
+    var showExportSheet by remember { mutableStateOf(false) }
 
     if (note == null) {
         LaunchedEffect(Unit) { onBack() }
@@ -2431,16 +2139,9 @@ fun NoteReaderView(
                     },
                     actions = {
                         IconButton(
-                            onClick = {
-                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(Intent.EXTRA_SUBJECT, currentNote.title)
-                                    putExtra(Intent.EXTRA_TEXT, "${currentNote.title}\n\n${currentNote.body}")
-                                }
-                                context.startActivity(Intent.createChooser(shareIntent, "Share note"))
-                            }
+                            onClick = { showExportSheet = true }
                         ) {
-                            Icon(Icons.Default.Share, contentDescription = "Share")
+                            Icon(Icons.Default.Share, contentDescription = "Share & Export")
                         }
                         IconButton(
                             onClick = {
@@ -2607,7 +2308,10 @@ fun NoteReaderView(
                         shape = RoundedCornerShape(10.dp),
                         color = NoteySurfaces.Surface1,
                         border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onPreviewMedia?.invoke(att) }
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
                             if (att.type == AttachmentType.IMAGE) {
@@ -2643,6 +2347,13 @@ fun NoteReaderView(
             Spacer(modifier = Modifier.height(60.dp))
         }
     }
+
+    if (showExportSheet) {
+        ExportShareBottomSheet(
+            note = currentNote,
+            onDismiss = { showExportSheet = false }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -2653,7 +2364,8 @@ fun NoteEditorView(
     settings: AppSettings,
     initialIsChecklist: Boolean = false,
     onBack: () -> Unit,
-    onSaved: (Long) -> Unit
+    onSaved: (Long) -> Unit,
+    onPreviewMedia: ((Attachment) -> Unit)? = null
 ) {
     val existingNote = remember(noteId) {
         if (noteId != null) noteStore.loadAll().firstOrNull { it.id == noteId } else null
@@ -2671,6 +2383,7 @@ fun NoteEditorView(
     var showThemeSheet by remember { mutableStateOf(false) }
     var showFolderDialog by remember { mutableStateOf(false) }
     var showCompletedTasks by remember { mutableStateOf(true) }
+    var showExportSheet by remember { mutableStateOf(false) }
 
     var tasks by remember {
         val initial = existingNote?.parseTasks() ?: emptyList()
@@ -2699,11 +2412,21 @@ fun NoteEditorView(
     }
 
     fun insertMarkdown(prefix: String, suffix: String = "") {
+        if (isChecklist) {
+            isChecklist = false
+            bodyTextFieldValue = TextFieldValue(tasks.joinToString("\n") { (if (it.isDone) "- [x] " else "- [ ] ") + it.text })
+        }
         val currentText = bodyTextFieldValue.text
         val selection = bodyTextFieldValue.selection
-        val selectedText = currentText.substring(selection.min, selection.max)
-        val newText = currentText.substring(0, selection.min) + prefix + selectedText + suffix + currentText.substring(selection.max)
-        val newCursor = if (selectedText.isEmpty()) selection.min + prefix.length else selection.min + prefix.length + selectedText.length + suffix.length
+        val start = selection.min.coerceIn(0, currentText.length)
+        val end = selection.max.coerceIn(0, currentText.length)
+        val selectedText = currentText.substring(start, end)
+        val newText = currentText.substring(0, start) + prefix + selectedText + suffix + currentText.substring(end)
+        val newCursor = if (selectedText.isEmpty()) {
+            start + prefix.length
+        } else {
+            start + prefix.length + selectedText.length + suffix.length
+        }
         bodyTextFieldValue = TextFieldValue(
             text = newText,
             selection = TextRange(newCursor)
@@ -2808,6 +2531,14 @@ fun NoteEditorView(
                         }
                         IconButton(
                             onClick = {
+                                saveCurrentNote()
+                                showExportSheet = true
+                            }
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = "Share & Export", tint = NoteySurfaces.TextPrimary)
+                        }
+                        IconButton(
+                            onClick = {
                                 val id = saveCurrentNote()
                                 onSaved(id)
                             }
@@ -2846,14 +2577,14 @@ fun NoteEditorView(
                         IconButton(onClick = { insertMarkdown("*", "*") }, modifier = Modifier.size(34.dp)) {
                             Icon(NoteyIcons.Italic, contentDescription = "Italic", tint = NoteySurfaces.TextPrimary, modifier = Modifier.size(16.dp))
                         }
-                        IconButton(onClick = { insertMarkdown("\n## ") }, modifier = Modifier.size(34.dp)) {
+                        IconButton(onClick = { insertMarkdown("### ") }, modifier = Modifier.size(34.dp)) {
                             Icon(NoteyIcons.Heading, contentDescription = "Heading", tint = NoteySurfaces.TextPrimary, modifier = Modifier.size(16.dp))
                         }
-                        IconButton(onClick = { insertMarkdown("\n- ") }, modifier = Modifier.size(34.dp)) {
+                        IconButton(onClick = { insertMarkdown("- ") }, modifier = Modifier.size(34.dp)) {
                             Icon(NoteyIcons.BulletList, contentDescription = "Bullet List", tint = NoteySurfaces.TextPrimary, modifier = Modifier.size(16.dp))
                         }
-                        IconButton(onClick = { toggleChecklistMode() }, modifier = Modifier.size(34.dp)) {
-                            Icon(NoteyIcons.TaskCheck, contentDescription = "Toggle Checklist", tint = if (isChecklist) accentColor else NoteySurfaces.TextPrimary, modifier = Modifier.size(16.dp))
+                        IconButton(onClick = { insertMarkdown("- [ ] ") }, modifier = Modifier.size(34.dp)) {
+                            Icon(NoteyIcons.TaskCheck, contentDescription = "Task Checkbox", tint = NoteySurfaces.TextPrimary, modifier = Modifier.size(16.dp))
                         }
                         IconButton(onClick = { insertMarkdown("\n```\n", "\n```\n") }, modifier = Modifier.size(34.dp)) {
                             Icon(NoteyIcons.Code, contentDescription = "Code Block", tint = NoteySurfaces.TextPrimary, modifier = Modifier.size(16.dp))
@@ -3126,7 +2857,11 @@ fun NoteEditorView(
                         ) {
                             Icon(NoteyIcons.Paperclip, contentDescription = null, tint = accentColor, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { onPreviewMedia?.invoke(att) }
+                            ) {
                                 Text(att.displayName, modifier = Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis, color = NoteySurfaces.TextPrimary)
                                 val sizeKb = (att.sizeBytes / 1024).coerceAtLeast(1)
                                 Text("$sizeKb KB • ${att.mimeType}", style = MonoMetadataStyle)
@@ -3278,6 +3013,23 @@ fun NoteEditorView(
                     Text("Cancel")
                 }
             }
+        )
+    }
+
+    if (showExportSheet) {
+        val finalBody = if (isChecklist) {
+            tasks.filter { it.text.isNotBlank() }.joinToString("\n") { task ->
+                val pfx = if (task.isDone) "- [x] " else "- [ ] "
+                "$pfx${task.text}"
+            }
+        } else {
+            bodyTextFieldValue.text
+        }
+        ExportShareBottomSheet(
+            title = title.ifBlank { "Untitled Note" },
+            content = finalBody,
+            onDismiss = { showExportSheet = false },
+            onSavedSuccessfully = { showExportSheet = false }
         )
     }
 }

@@ -273,126 +273,14 @@ fun LibraryScreen(
         }
     }
 
-    // Active Preview Modal
+    // Full-Screen Hardware-Accelerated Media Viewer Dialog
     if (activePreviewAttachment != null) {
         val att = activePreviewAttachment!!
-        Dialog(onDismissRequest = { activePreviewAttachment = null }) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = NoteySurfaces.Surface2,
-                border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .imePadding()
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = att.displayName,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = NoteySurfaces.TextPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(onClick = { activePreviewAttachment = null }) {
-                            Icon(Icons.Default.Close, contentDescription = "Close", tint = NoteySurfaces.TextSecondary)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    if (att.type == AttachmentType.IMAGE) {
-                        val bmp = remember(att.filePath) {
-                            try { BitmapFactory.decodeFile(att.filePath) } catch (_: Exception) { null }
-                        }
-                        if (bmp != null) {
-                            Image(
-                                bitmap = bmp.asImageBitmap(),
-                                contentDescription = att.displayName,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(max = 280.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                            )
-                        }
-                    } else if (att.type == AttachmentType.VIDEO) {
-                        AndroidView(
-                            factory = { ctx ->
-                                VideoView(ctx).apply {
-                                    setVideoURI(Uri.fromFile(File(att.filePath)))
-                                    val mediaController = MediaController(ctx)
-                                    mediaController.setAnchorView(this)
-                                    setMediaController(mediaController)
-                                    start()
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(220.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(120.dp)
-                                .background(NoteySurfaces.Surface3, RoundedCornerShape(8.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                NoteyIcons.Document,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(48.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                try {
-                                    val uri = FileProvider.getUriForFile(
-                                        context,
-                                        "${context.packageName}.provider",
-                                        File(att.filePath)
-                                    )
-                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = att.mimeType
-                                        putExtra(Intent.EXTRA_STREAM, uri)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                    context.startActivity(Intent.createChooser(shareIntent, "Share file"))
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Cannot share file", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Share", fontSize = 12.sp)
-                        }
-                    }
-                }
-            }
-        }
+        MediaViewerDialog(
+            filePath = att.filePath,
+            title = att.displayName,
+            onDismiss = { activePreviewAttachment = null }
+        )
     }
 }
 
