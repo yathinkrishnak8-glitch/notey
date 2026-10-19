@@ -38,9 +38,16 @@ data class Note(
     val title: String,
     val body: String,
     val isPinned: Boolean = false,
+    val isFavorite: Boolean = false,
+    val folder: String = "",
+    val tags: List<String> = emptyList(),
+    val isChecklist: Boolean = false,
+    val isArchived: Boolean = false,
+    val isTrashed: Boolean = false,
     val colorIndex: Int = 0,
     val attachments: List<Attachment> = emptyList(),
-    val updatedAt: Long,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
 )
 
 /** Lightweight persistence: all notes stored as one JSON array in SharedPreferences. */
@@ -61,7 +68,7 @@ class NoteStore(private val context: Context) {
                     val typeStr = a.optString("type", AttachmentType.FILE.name)
                     val type = try {
                         AttachmentType.valueOf(typeStr)
-                    } catch (e: Exception) {
+                    } catch (_: Exception) {
                         AttachmentType.FILE
                     }
                     attachmentsList += Attachment(
@@ -74,20 +81,61 @@ class NoteStore(private val context: Context) {
                     )
                 }
             }
+
+            val tagsList = mutableListOf<String>()
+            if (o.has("tags")) {
+                val tagsArr = o.getJSONArray("tags")
+                for (k in 0 until tagsArr.length()) {
+                    tagsList.add(tagsArr.getString(k))
+                }
+            }
+
+            val updated = o.optLong("updatedAt", System.currentTimeMillis())
+            val created = o.optLong("createdAt", updated)
+
             notes += Note(
                 id = o.getLong("id"),
-                title = o.getString("title"),
-                body = o.getString("body"),
+                title = o.optString("title", ""),
+                body = o.optString("body", ""),
                 isPinned = o.optBoolean("isPinned", false),
+                isFavorite = o.optBoolean("isFavorite", false),
+                folder = o.optString("folder", ""),
+                tags = tagsList,
+                isChecklist = o.optBoolean("isChecklist", false),
+                isArchived = o.optBoolean("isArchived", false),
+                isTrashed = o.optBoolean("isTrashed", false),
                 colorIndex = o.optInt("colorIndex", 0),
                 attachments = attachmentsList,
-                updatedAt = o.getLong("updatedAt"),
+                createdAt = created,
+                updatedAt = updated,
             )
         }
-        return notes.sortedWith(
-            compareByDescending<Note> { it.isPinned }
-                .thenByDescending { it.updatedAt }
-        )
+        return notes
+    }
+
+    fun getActiveNotes(): List<Note> {
+        return loadAll().filter { !it.isTrashed && !it.isArchived }
+            .sortedWith(
+                compareByDescending<Note> { it.isPinned }
+                    .thenByDescending { it.updatedAt }
+            )
+    }
+
+    fun getFolders(): List<String> {
+        return loadAll()
+            .map { it.folder.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+    }
+
+    fun getAllTags(): List<String> {
+        return loadAll()
+            .flatMap { it.tags }
+            .map { it.trim().removePrefix("#") }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
     }
 
     fun save(note: Note) {
@@ -95,7 +143,17 @@ class NoteStore(private val context: Context) {
         writeAll(notes)
     }
 
-    fun delete(id: Long) {
+    fun moveToTrash(id: Long) {
+        val note = loadAll().firstOrNull { it.id == id } ?: return
+        save(note.copy(isTrashed = true, isPinned = false))
+    }
+
+    fun restoreFromTrash(id: Long) {
+        val note = loadAll().firstOrNull { it.id == id } ?: return
+        save(note.copy(isTrashed = false))
+    }
+
+    fun permanentlyDelete(id: Long) {
         val toDelete = loadAll().firstOrNull { it.id == id }
         toDelete?.attachments?.forEach { att ->
             try {
@@ -105,9 +163,24 @@ class NoteStore(private val context: Context) {
         writeAll(loadAll().filter { it.id != id })
     }
 
+    fun clearTrash() {
+        val trashed = loadAll().filter { it.isTrashed }
+        trashed.forEach { note ->
+            note.attachments.forEach { att ->
+                try { File(att.filePath).delete() } catch (_: Exception) {}
+            }
+        }
+        writeAll(loadAll().filter { !it.isTrashed })
+    }
+
     fun togglePin(id: Long) {
         val note = loadAll().firstOrNull { it.id == id } ?: return
         save(note.copy(isPinned = !note.isPinned))
+    }
+
+    fun toggleFavorite(id: Long) {
+        val note = loadAll().firstOrNull { it.id == id } ?: return
+        save(note.copy(isFavorite = !note.isFavorite))
     }
 
     /** Copy picked URI to internal files directory so it is safely accessible permanently. */
@@ -156,6 +229,46 @@ class NoteStore(private val context: Context) {
         }
     }
 
+    fun exportJson(): String {
+        return prefs.getString(KEY_NOTES, "[]") ?: "[]"
+    }
+
+    fun importJson(jsonString: String): Boolean {
+        return try {
+            val array = JSONArray(jsonString)
+            // Validate parsing
+            val imported = ArrayList<Note>(array.length())
+            for (i in 0 until array.length()) {
+                val o = array.getJSONObject(i)
+                imported += Note(
+                    id = o.getLong("id"),
+                    title = o.optString("title", ""),
+                    body = o.optString("body", ""),
+                    isPinned = o.optBoolean("isPinned", false),
+                    isFavorite = o.optBoolean("isFavorite", false),
+                    folder = o.optString("folder", ""),
+                    colorIndex = o.optInt("colorIndex", 0),
+                    updatedAt = o.optLong("updatedAt", System.currentTimeMillis()),
+                )
+            }
+            prefs.edit().putString(KEY_NOTES, jsonString).apply()
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    fun clearAllData() {
+        val all = loadAll()
+        all.forEach { note ->
+            note.attachments.forEach { att ->
+                try { File(att.filePath).delete() } catch (_: Exception) {}
+            }
+        }
+        prefs.edit().clear().apply()
+    }
+
     private fun writeAll(notes: List<Note>) {
         val array = JSONArray()
         notes.forEach { n ->
@@ -171,14 +284,25 @@ class NoteStore(private val context: Context) {
                         .put("type", a.type.name)
                 )
             }
+
+            val tagsArray = JSONArray()
+            n.tags.forEach { tagsArray.put(it) }
+
             array.put(
                 JSONObject()
                     .put("id", n.id)
                     .put("title", n.title)
                     .put("body", n.body)
                     .put("isPinned", n.isPinned)
+                    .put("isFavorite", n.isFavorite)
+                    .put("folder", n.folder)
+                    .put("tags", tagsArray)
+                    .put("isChecklist", n.isChecklist)
+                    .put("isArchived", n.isArchived)
+                    .put("isTrashed", n.isTrashed)
                     .put("colorIndex", n.colorIndex)
                     .put("attachments", attArray)
+                    .put("createdAt", n.createdAt)
                     .put("updatedAt", n.updatedAt)
             )
         }
