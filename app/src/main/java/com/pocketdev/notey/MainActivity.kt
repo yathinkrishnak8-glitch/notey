@@ -53,7 +53,7 @@ enum class NavDestination {
 }
 
 enum class ScreenState {
-    SPLASH, PROFILE_SETUP, MAIN, NOTE_READER, NOTE_EDITOR, SEARCH
+    SPLASH, PROFILE_SETUP, MAIN, NOTE_READER, NOTE_EDITOR, SEARCH, LOGO_STUDIO
 }
 
 class MainActivity : ComponentActivity() {
@@ -120,7 +120,7 @@ fun NoteyApp(
     // Handle system back button
     BackHandler(enabled = screenState != ScreenState.MAIN) {
         when (screenState) {
-            ScreenState.NOTE_READER, ScreenState.NOTE_EDITOR, ScreenState.SEARCH -> {
+            ScreenState.NOTE_READER, ScreenState.NOTE_EDITOR, ScreenState.SEARCH, ScreenState.LOGO_STUDIO -> {
                 screenState = ScreenState.MAIN
             }
             ScreenState.PROFILE_SETUP -> {
@@ -197,6 +197,11 @@ fun NoteyApp(
                     onBack = { screenState = ScreenState.MAIN }
                 )
             }
+            ScreenState.LOGO_STUDIO -> {
+                LogoStudioScreen(
+                    onBack = { screenState = ScreenState.MAIN }
+                )
+            }
             ScreenState.MAIN -> {
                 Scaffold(
                     bottomBar = {
@@ -207,31 +212,34 @@ fun NoteyApp(
                             NavigationBarItem(
                                 selected = currentDestination == NavDestination.HOME,
                                 onClick = { currentDestination = NavDestination.HOME },
-                                icon = { Text("🏠", fontSize = 18.sp) },
+                                icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
                                 label = { Text("Home") }
                             )
                             NavigationBarItem(
                                 selected = currentDestination == NavDestination.NOTES,
                                 onClick = { currentDestination = NavDestination.NOTES },
-                                icon = { Text("📝", fontSize = 18.sp) },
+                                icon = { Icon(Icons.Default.Edit, contentDescription = "Notes") },
                                 label = { Text("Notes") }
                             )
                             NavigationBarItem(
                                 selected = currentDestination == NavDestination.CANVAS,
-                                onClick = { currentDestination = NavDestination.CANVAS },
-                                icon = { Text("🔀", fontSize = 18.sp) },
+                                onClick = {
+                                    canvasDocIdToOpen = null
+                                    currentDestination = NavDestination.CANVAS
+                                },
+                                icon = { Icon(Icons.Default.Share, contentDescription = "Canvas") },
                                 label = { Text("Canvas") }
                             )
                             NavigationBarItem(
                                 selected = currentDestination == NavDestination.LIBRARY,
                                 onClick = { currentDestination = NavDestination.LIBRARY },
-                                icon = { Text("📁", fontSize = 18.sp) },
+                                icon = { Icon(NoteyIcons.Folder, contentDescription = "Library") },
                                 label = { Text("Library") }
                             )
                             NavigationBarItem(
                                 selected = currentDestination == NavDestination.SETTINGS,
                                 onClick = { currentDestination = NavDestination.SETTINGS },
-                                icon = { Text("⚙️", fontSize = 18.sp) },
+                                icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
                                 label = { Text("Settings") }
                             )
                         }
@@ -283,7 +291,11 @@ fun NoteyApp(
                                                 screenState = ScreenState.NOTE_EDITOR
                                             }
                                             "canvas" -> {
+                                                canvasDocIdToOpen = null
                                                 currentDestination = NavDestination.CANVAS
+                                            }
+                                            "logo" -> {
+                                                screenState = ScreenState.LOGO_STUDIO
                                             }
                                             "folder" -> {
                                                 currentDestination = NavDestination.NOTES
@@ -314,7 +326,14 @@ fun NoteyApp(
                                     canvasStore = canvasStore,
                                     settings = settings,
                                     noteStore = noteStore,
-                                    initialDocId = canvasDocIdToOpen
+                                    initialDocId = canvasDocIdToOpen,
+                                    onOpenNote = { id ->
+                                        activeNoteId = id
+                                        screenState = ScreenState.NOTE_READER
+                                    },
+                                    onOpenFolder = { _ ->
+                                        currentDestination = NavDestination.LIBRARY
+                                    }
                                 )
                             }
                             NavDestination.LIBRARY -> {
@@ -372,7 +391,7 @@ fun NoteyApp(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 QuickCreateMenuItem(
-                    icon = "📝",
+                    icon = Icons.Default.Edit,
                     title = "New Note",
                     subtitle = "Write a simple note",
                     onClick = {
@@ -383,7 +402,7 @@ fun NoteyApp(
                 )
 
                 QuickCreateMenuItem(
-                    icon = "☑️",
+                    icon = Icons.Default.Check,
                     title = "New Checklist",
                     subtitle = "Create a task list",
                     onClick = {
@@ -394,17 +413,28 @@ fun NoteyApp(
                 )
 
                 QuickCreateMenuItem(
-                    icon = "🔀",
+                    icon = Icons.Default.Share,
                     title = "New Canvas",
                     subtitle = "Visual workspace & flowchart",
                     onClick = {
                         showQuickCreateSheet = false
+                        canvasDocIdToOpen = null
                         currentDestination = NavDestination.CANVAS
                     }
                 )
 
                 QuickCreateMenuItem(
-                    icon = "📁",
+                    icon = Icons.Default.Star,
+                    title = "Logo Studio",
+                    subtitle = "Create logos & brand emblems",
+                    onClick = {
+                        showQuickCreateSheet = false
+                        screenState = ScreenState.LOGO_STUDIO
+                    }
+                )
+
+                QuickCreateMenuItem(
+                    icon = NoteyIcons.Folder,
                     title = "New Folder",
                     subtitle = "Organize your notes into collections",
                     onClick = {
@@ -421,7 +451,7 @@ fun NoteyApp(
 
 @Composable
 fun QuickCreateMenuItem(
-    icon: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     subtitle: String,
     onClick: () -> Unit
@@ -445,7 +475,7 @@ fun QuickCreateMenuItem(
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
-                Text(icon, fontSize = 22.sp)
+                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(22.dp))
             }
             Spacer(modifier = Modifier.width(14.dp))
             Column {
@@ -613,17 +643,22 @@ fun HomeDashboardView(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            QuickActionPill(icon = "📝", label = "Note", onClick = { onQuickAction("note") }, modifier = Modifier.weight(1f))
-            QuickActionPill(icon = "☑️", label = "Checklist", onClick = { onQuickAction("checklist") }, modifier = Modifier.weight(1f))
-            QuickActionPill(icon = "🔀", label = "Canvas", onClick = { onQuickAction("canvas") }, modifier = Modifier.weight(1f))
-            QuickActionPill(icon = "📁", label = "Folder", onClick = { onQuickAction("folder") }, modifier = Modifier.weight(1f))
+            QuickActionPill(icon = Icons.Default.Edit, label = "Note", onClick = { onQuickAction("note") }, modifier = Modifier.weight(1f))
+            QuickActionPill(icon = Icons.Default.Check, label = "Checklist", onClick = { onQuickAction("checklist") }, modifier = Modifier.weight(1f))
+            QuickActionPill(icon = Icons.Default.Share, label = "Canvas", onClick = { onQuickAction("canvas") }, modifier = Modifier.weight(1f))
+            QuickActionPill(icon = Icons.Default.Star, label = "Logos", onClick = { onQuickAction("logo") }, modifier = Modifier.weight(1f))
         }
 
         // Pinned Section
         if (pinnedNotes.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("📌", fontSize = 16.sp)
+                    Icon(
+                        Icons.Default.Star,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "PINNED",
@@ -730,7 +765,7 @@ fun HomeDashboardView(
 
 @Composable
 fun QuickActionPill(
-    icon: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -745,8 +780,8 @@ fun QuickActionPill(
             modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(icon, fontSize = 22.sp)
-            Spacer(modifier = Modifier.height(4.dp))
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
         }
     }

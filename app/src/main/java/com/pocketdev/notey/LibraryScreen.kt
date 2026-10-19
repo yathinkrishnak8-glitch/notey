@@ -15,10 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -129,8 +126,13 @@ fun LibraryScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("📁", fontSize = 48.sp)
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Icon(
+                        NoteyIcons.Folder,
+                        contentDescription = null,
+                        modifier = Modifier.size(54.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
                     Text(
                         text = if (searchQuery.isNotBlank()) "No files match your search" else "No attachments yet",
                         style = MaterialTheme.typography.titleMedium,
@@ -246,8 +248,13 @@ fun LibraryScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier.padding(24.dp)
                         ) {
-                            Text("📄", fontSize = 48.sp)
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Icon(
+                                Icons.Default.AccountBox,
+                                contentDescription = null,
+                                modifier = Modifier.size(52.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
                             Text(att.displayName, fontWeight = FontWeight.Bold)
                             Text("${att.sizeBytes / 1024} KB • ${att.mimeType}")
                         }

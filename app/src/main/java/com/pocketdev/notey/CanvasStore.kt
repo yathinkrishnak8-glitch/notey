@@ -6,11 +6,11 @@ import org.json.JSONObject
 import java.util.UUID
 
 enum class CanvasType {
-    CANVAS, WORKFLOW
+    CANVAS, WORKFLOW, MIND_MAP, PLANNING
 }
 
 enum class CanvasNodeType {
-    TEXT, STICKY, SHAPE, NOTE, IMAGE, VIDEO, FILE, START, END, TASK, DECISION, ACTION
+    TEXT, STICKY, SHAPE, NOTE, FOLDER, IMAGE, VIDEO, FILE, LINK, ASSET, START, END, TASK, DECISION, ACTION
 }
 
 data class CanvasNode(
@@ -27,6 +27,10 @@ data class CanvasNode(
     val mediaPath: String = "",
     val mediaType: String = "", // "image", "video", "file"
     val zIndex: Int = 0,
+    val noteId: Long? = null,
+    val folderName: String? = null,
+    val assetId: String? = null,
+    val linkUrl: String? = null,
 )
 
 data class CanvasConnector(
@@ -88,7 +92,11 @@ class CanvasStore(context: Context) {
                             shapeType = no.optString("shapeType", "rounded"),
                             mediaPath = no.optString("mediaPath", ""),
                             mediaType = no.optString("mediaType", ""),
-                            zIndex = no.optInt("zIndex", 0)
+                            zIndex = no.optInt("zIndex", 0),
+                            noteId = if (no.has("noteId") && !no.isNull("noteId")) no.getLong("noteId") else null,
+                            folderName = if (no.has("folderName") && !no.isNull("folderName")) no.getString("folderName") else null,
+                            assetId = if (no.has("assetId") && !no.isNull("assetId")) no.getString("assetId") else null,
+                            linkUrl = if (no.has("linkUrl") && !no.isNull("linkUrl")) no.getString("linkUrl") else null,
                         )
                     }
                 }
@@ -138,27 +146,66 @@ class CanvasStore(context: Context) {
         saveAll(filtered)
     }
 
+    fun duplicate(id: String): CanvasDocument? {
+        val original = loadAll().firstOrNull { it.id == id } ?: return null
+        val newDocId = UUID.randomUUID().toString()
+        val nodeMap = mutableMapOf<String, String>()
+        val duplicatedNodes = original.nodes.map { node ->
+            val newId = UUID.randomUUID().toString()
+            nodeMap[node.id] = newId
+            node.copy(id = newId)
+        }
+        val duplicatedConnectors = original.connectors.mapNotNull { conn ->
+            val newFrom = nodeMap[conn.fromNodeId]
+            val newTo = nodeMap[conn.toNodeId]
+            if (newFrom != null && newTo != null) {
+                conn.copy(id = UUID.randomUUID().toString(), fromNodeId = newFrom, toNodeId = newTo)
+            } else null
+        }
+        val duplicatedDoc = original.copy(
+            id = newDocId,
+            name = "${original.name} (Copy)",
+            nodes = duplicatedNodes,
+            connectors = duplicatedConnectors,
+            updatedAt = System.currentTimeMillis()
+        )
+        save(duplicatedDoc)
+        return duplicatedDoc
+    }
+
+    fun rename(id: String, newName: String): CanvasDocument? {
+        val doc = loadAll().firstOrNull { it.id == id } ?: return null
+        val updated = doc.copy(name = newName.trim(), updatedAt = System.currentTimeMillis())
+        save(updated)
+        return updated
+    }
+
     private fun saveAll(list: List<CanvasDocument>) {
         val array = JSONArray()
         list.forEach { doc ->
             val nArr = JSONArray()
             doc.nodes.forEach { n ->
-                nArr.put(
-                    JSONObject()
-                        .put("id", n.id)
-                        .put("type", n.type.name)
-                        .put("title", n.title)
-                        .put("content", n.content)
-                        .put("x", n.x.toDouble())
-                        .put("y", n.y.toDouble())
-                        .put("width", n.width.toDouble())
-                        .put("height", n.height.toDouble())
-                        .put("colorIndex", n.colorIndex)
-                        .put("shapeType", n.shapeType)
-                        .put("mediaPath", n.mediaPath)
-                        .put("mediaType", n.mediaType)
-                        .put("zIndex", n.zIndex)
-                )
+                val no = JSONObject()
+                    .put("id", n.id)
+                    .put("type", n.type.name)
+                    .put("title", n.title)
+                    .put("content", n.content)
+                    .put("x", n.x.toDouble())
+                    .put("y", n.y.toDouble())
+                    .put("width", n.width.toDouble())
+                    .put("height", n.height.toDouble())
+                    .put("colorIndex", n.colorIndex)
+                    .put("shapeType", n.shapeType)
+                    .put("mediaPath", n.mediaPath)
+                    .put("mediaType", n.mediaType)
+                    .put("zIndex", n.zIndex)
+
+                if (n.noteId != null) no.put("noteId", n.noteId)
+                if (n.folderName != null) no.put("folderName", n.folderName)
+                if (n.assetId != null) no.put("assetId", n.assetId)
+                if (n.linkUrl != null) no.put("linkUrl", n.linkUrl)
+
+                nArr.put(no)
             }
 
             val cArr = JSONArray()
@@ -195,7 +242,7 @@ class CanvasStore(context: Context) {
         val n3 = CanvasNode("cf-3", CanvasNodeType.SHAPE, "Design", "M3 Glass System", 360f, 160f, 120f, 60f, 1, "rounded")
         val n4 = CanvasNode("cf-4", CanvasNodeType.TASK, "Development", "Jetpack Compose", 220f, 260f, 160f, 60f, 4, "rounded")
         val n5 = CanvasNode("cf-5", CanvasNodeType.TASK, "Testing", "Unit & UI tests", 120f, 360f, 120f, 60f, 3, "pill")
-        val n6 = CanvasNode("cf-6", CanvasNodeType.TASK, "Launch", "Release v1.0", 360f, 360f, 120f, 60f, 2, "pill")
+        val n6 = CanvasNode("cf-6", CanvasNodeType.TASK, "Launch", "Release v1.2", 360f, 360f, 120f, 60f, 2, "pill")
 
         val c1 = CanvasConnector("cc-1", "cf-1", "cf-2", "", 0)
         val c2 = CanvasConnector("cc-2", "cf-1", "cf-3", "", 0)
@@ -238,7 +285,27 @@ class CanvasStore(context: Context) {
             updatedAt = System.currentTimeMillis() - 3600000L
         )
 
-        return listOf(projectCanvas, workflowDoc)
+        val m1 = CanvasNode("mm-1", CanvasNodeType.STICKY, "Central Concept", "Core initiative", 240f, 180f, 160f, 70f, 1, "rounded")
+        val m2 = CanvasNode("mm-2", CanvasNodeType.TASK, "Market Discovery", "Customer interviews", 80f, 60f, 140f, 56f, 0, "rounded")
+        val m3 = CanvasNode("mm-3", CanvasNodeType.TASK, "Tech Stack", "Compose & Kotlin", 400f, 60f, 140f, 56f, 2, "rounded")
+        val m4 = CanvasNode("mm-4", CanvasNodeType.TASK, "UX Prototype", "Figma & Micro-flows", 80f, 300f, 140f, 56f, 3, "rounded")
+        val m5 = CanvasNode("mm-5", CanvasNodeType.TASK, "Release Road", "App release milestones", 400f, 300f, 140f, 56f, 4, "rounded")
+
+        val mc1 = CanvasConnector("mmc-1", "mm-1", "mm-2", "Phase 1", 0)
+        val mc2 = CanvasConnector("mmc-2", "mm-1", "mm-3", "Architecture", 2)
+        val mc3 = CanvasConnector("mmc-3", "mm-1", "mm-4", "Design", 3)
+        val mc4 = CanvasConnector("mmc-4", "mm-1", "mm-5", "Delivery", 4)
+
+        val mindMapDoc = CanvasDocument(
+            id = "sample-mindmap-1",
+            name = "Product Vision Map",
+            type = CanvasType.MIND_MAP,
+            nodes = listOf(m1, m2, m3, m4, m5),
+            connectors = listOf(mc1, mc2, mc3, mc4),
+            updatedAt = System.currentTimeMillis() - 7200000L
+        )
+
+        return listOf(projectCanvas, workflowDoc, mindMapDoc)
     }
 
     private companion object {
