@@ -3,18 +3,20 @@ package com.pocketdev.notey
 import android.content.Context
 import androidx.compose.ui.graphics.Color
 
-enum class ThemeMode {
-    SYSTEM, DARK, LIGHT
+enum class ThemeMode(val label: String) {
+    AMOLED_BLACK("AMOLED Black"),
+    ZINC_GREY("Zinc Grey"),
+    MONET_DYNAMIC("Monet Dynamic")
 }
 
 enum class UIStyle {
     ROUNDED, COMPACT
 }
 
-enum class AnimationSpeed(val durationMs: Int) {
-    SLOW(350),
-    NORMAL(200),
-    FAST(100)
+enum class AnimationSpeed(val durationMs: Int, val label: String) {
+    INSTANT(0, "Instant"),
+    FLUID(240, "Fluid 240ms"),
+    SPRING(380, "Smooth Spring")
 }
 
 data class ColorPreset(
@@ -27,86 +29,77 @@ data class ColorPreset(
 )
 
 object AccentColors {
+    // 6 Dynamic Accent swatches (Luminance clamped 60%-75%)
     val presets = listOf(
         ColorPreset(
-            name = "Amethyst Glow",
-            primary = Color(0xFF9333EA),
-            secondary = Color(0xFFA855F7),
-            tertiary = Color(0xFFC084FC),
-            surfaceGradientStart = Color(0xFF1E1035),
-            surfaceGradientEnd = Color(0xFF0F071D)
+            name = "Electric Slate",
+            primary = Color(0xFF38BDF8),
+            secondary = Color(0xFF0284C7),
+            tertiary = Color(0xFFBAE6FD),
+            surfaceGradientStart = Color(0xFF0C1929),
+            surfaceGradientEnd = Color(0xFF000000)
         ),
         ColorPreset(
-            name = "Aurora Borealis",
-            primary = Color(0xFF06B6D4),
-            secondary = Color(0xFF10B981),
-            tertiary = Color(0xFF34D399),
-            surfaceGradientStart = Color(0xFF072127),
-            surfaceGradientEnd = Color(0xFF031014)
-        ),
-        ColorPreset(
-            name = "Sunset Ember",
-            primary = Color(0xFFF97316),
-            secondary = Color(0xFFEF4444),
-            tertiary = Color(0xFFFBBF24),
-            surfaceGradientStart = Color(0xFF281308),
-            surfaceGradientEnd = Color(0xFF130904)
-        ),
-        ColorPreset(
-            name = "Midnight Obsidian",
-            primary = Color(0xFF3B82F6),
-            secondary = Color(0xFF6366F1),
-            tertiary = Color(0xFF93C5FD),
-            surfaceGradientStart = Color(0xFF0B132B),
-            surfaceGradientEnd = Color(0xFF060B18)
-        ),
-        ColorPreset(
-            name = "Emerald Grove",
-            primary = Color(0xFF10B981),
+            name = "Nordic Mint",
+            primary = Color(0xFF34D399),
             secondary = Color(0xFF059669),
-            tertiary = Color(0xFF6EE7B7),
+            tertiary = Color(0xFFA7F3D0),
             surfaceGradientStart = Color(0xFF062319),
-            surfaceGradientEnd = Color(0xFF02100B)
+            surfaceGradientEnd = Color(0xFF000000)
         ),
         ColorPreset(
-            name = "Rose Petal",
-            primary = Color(0xFFF43F5E),
+            name = "Solar Amber",
+            primary = Color(0xFFFBBF24),
+            secondary = Color(0xFFD97706),
+            tertiary = Color(0xFFFDE68A),
+            surfaceGradientStart = Color(0xFF261805),
+            surfaceGradientEnd = Color(0xFF000000)
+        ),
+        ColorPreset(
+            name = "Hyper Violet",
+            primary = Color(0xFFA78BFA),
+            secondary = Color(0xFF7C3AED),
+            tertiary = Color(0xFFDDD6FE),
+            surfaceGradientStart = Color(0xFF1E1035),
+            surfaceGradientEnd = Color(0xFF000000)
+        ),
+        ColorPreset(
+            name = "Crimson Pulse",
+            primary = Color(0xFFFB7185),
             secondary = Color(0xFFE11D48),
-            tertiary = Color(0xFFFDA4AF),
+            tertiary = Color(0xFFFECDD3),
             surfaceGradientStart = Color(0xFF280B13),
-            surfaceGradientEnd = Color(0xFF140509)
+            surfaceGradientEnd = Color(0xFF000000)
         ),
         ColorPreset(
-            name = "Frost Light",
-            primary = Color(0xFF0EA5E9),
-            secondary = Color(0xFF6366F1),
-            tertiary = Color(0xFF38BDF8),
-            surfaceGradientStart = Color(0xFF1E293B),
-            surfaceGradientEnd = Color(0xFF0F172A)
+            name = "Monochrome Pure",
+            primary = Color(0xFFF4F4F5),
+            secondary = Color(0xFF71717A),
+            tertiary = Color(0xFFD4D4D8),
+            surfaceGradientStart = Color(0xFF18181B),
+            surfaceGradientEnd = Color(0xFF000000)
         )
     )
 
     // Palette of accent dots for quick selection
     val accentSwatches = listOf(
-        Color(0xFF9333EA), // Purple
-        Color(0xFF06B6D4), // Cyan
-        Color(0xFF3B82F6), // Blue
-        Color(0xFF10B981), // Emerald
-        Color(0xFFF59E0B), // Amber
-        Color(0xFFEF4444), // Red
-        Color(0xFFF43F5E), // Rose
-        Color(0xFF64748B)  // Slate
+        Color(0xFF38BDF8), // Electric Slate
+        Color(0xFF34D399), // Nordic Mint
+        Color(0xFFFBBF24), // Solar Amber
+        Color(0xFFA78BFA), // Hyper Violet
+        Color(0xFFFB7185), // Crimson Pulse
+        Color(0xFFF4F4F5)  // Monochrome Pure
     )
 }
 
 data class AppSettings(
-    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val themeMode: ThemeMode = ThemeMode.AMOLED_BLACK,
     val accentIndex: Int = 0,
-    val uiStyle: UIStyle = UIStyle.ROUNDED,
+    val uiStyle: UIStyle = UIStyle.COMPACT,
     val dynamicColor: Boolean = false,
     val animationsEnabled: Boolean = true,
     val reduceMotion: Boolean = false,
-    val animationSpeed: AnimationSpeed = AnimationSpeed.NORMAL,
+    val animationSpeed: AnimationSpeed = AnimationSpeed.FLUID,
     val hapticFeedback: Boolean = true,
     val confirmDestructive: Boolean = true,
     val hasSeenOnboarding: Boolean = false,
@@ -129,14 +122,32 @@ class SettingsStore(context: Context) {
     }
 
     fun loadSettings(): AppSettings {
-        val themeModeStr = prefs.getString("theme_mode", ThemeMode.SYSTEM.name) ?: ThemeMode.SYSTEM.name
-        val themeMode = try { ThemeMode.valueOf(themeModeStr) } catch (_: Exception) { ThemeMode.SYSTEM }
+        val themeModeStr = prefs.getString("theme_mode", ThemeMode.AMOLED_BLACK.name) ?: ThemeMode.AMOLED_BLACK.name
+        val themeMode = try {
+            when (themeModeStr) {
+                "SYSTEM" -> ThemeMode.MONET_DYNAMIC
+                "LIGHT" -> ThemeMode.ZINC_GREY
+                "DARK" -> ThemeMode.AMOLED_BLACK
+                else -> ThemeMode.valueOf(themeModeStr)
+            }
+        } catch (_: Exception) {
+            ThemeMode.AMOLED_BLACK
+        }
 
-        val uiStyleStr = prefs.getString("ui_style", UIStyle.ROUNDED.name) ?: UIStyle.ROUNDED.name
-        val uiStyle = try { UIStyle.valueOf(uiStyleStr) } catch (_: Exception) { UIStyle.ROUNDED }
+        val uiStyleStr = prefs.getString("ui_style", UIStyle.COMPACT.name) ?: UIStyle.COMPACT.name
+        val uiStyle = try { UIStyle.valueOf(uiStyleStr) } catch (_: Exception) { UIStyle.COMPACT }
 
-        val animSpeedStr = prefs.getString("anim_speed", AnimationSpeed.NORMAL.name) ?: AnimationSpeed.NORMAL.name
-        val animSpeed = try { AnimationSpeed.valueOf(animSpeedStr) } catch (_: Exception) { AnimationSpeed.NORMAL }
+        val animSpeedStr = prefs.getString("anim_speed", AnimationSpeed.FLUID.name) ?: AnimationSpeed.FLUID.name
+        val animSpeed = try {
+            when (animSpeedStr) {
+                "SLOW" -> AnimationSpeed.SPRING
+                "NORMAL" -> AnimationSpeed.FLUID
+                "FAST" -> AnimationSpeed.INSTANT
+                else -> AnimationSpeed.valueOf(animSpeedStr)
+            }
+        } catch (_: Exception) {
+            AnimationSpeed.FLUID
+        }
 
         return AppSettings(
             themeMode = themeMode,

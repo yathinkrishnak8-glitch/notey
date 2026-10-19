@@ -33,6 +33,12 @@ data class Attachment(
     val type: AttachmentType,
 )
 
+data class TaskItem(
+    val id: String = UUID.randomUUID().toString(),
+    val text: String,
+    val isDone: Boolean = false
+)
+
 data class Note(
     val id: Long,
     val title: String,
@@ -45,17 +51,48 @@ data class Note(
     val isArchived: Boolean = false,
     val isTrashed: Boolean = false,
     val colorIndex: Int = 0,
+    val bgTheme: String = "none",
     val attachments: List<Attachment> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-)
+) {
+    fun parseTasks(): List<TaskItem> {
+        if (body.isBlank()) return emptyList()
+        return body.lines().mapNotNull { rawLine ->
+            val trimmed = rawLine.trim()
+            if (trimmed.isEmpty()) null
+            else if (trimmed.startsWith("- [x] ", ignoreCase = true) || trimmed.startsWith("[x] ", ignoreCase = true)) {
+                val t = trimmed.removePrefix("- [x] ").removePrefix("- [X] ").removePrefix("[x] ").removePrefix("[X] ")
+                TaskItem(text = t, isDone = true)
+            } else if (trimmed.startsWith("- [ ] ") || trimmed.startsWith("[ ] ")) {
+                val t = trimmed.removePrefix("- [ ] ").removePrefix("[ ] ")
+                TaskItem(text = t, isDone = false)
+            } else {
+                TaskItem(text = trimmed, isDone = false)
+            }
+        }
+    }
+
+    fun updateWithTasks(tasks: List<TaskItem>): Note {
+        val formatted = tasks.joinToString("\n") { task ->
+            val prefix = if (task.isDone) "- [x] " else "- [ ] "
+            "$prefix${task.text}"
+        }
+        return this.copy(body = formatted, isChecklist = true, updatedAt = System.currentTimeMillis())
+    }
+}
 
 /** Lightweight persistence: all notes stored as one JSON array in SharedPreferences. */
 class NoteStore(private val context: Context) {
     private val prefs = context.getSharedPreferences("notey_notes", Context.MODE_PRIVATE)
 
     fun loadAll(): List<Note> {
-        val raw = prefs.getString(KEY_NOTES, null) ?: return emptyList()
+        val raw = prefs.getString(KEY_NOTES, null)
+        if (raw == null) {
+            val initialSamples = createDefaultSampleNotes()
+            writeAll(initialSamples)
+            return initialSamples
+        }
         val array = JSONArray(raw)
         val notes = ArrayList<Note>(array.length())
         for (i in 0 until array.length()) {
@@ -105,12 +142,75 @@ class NoteStore(private val context: Context) {
                 isArchived = o.optBoolean("isArchived", false),
                 isTrashed = o.optBoolean("isTrashed", false),
                 colorIndex = o.optInt("colorIndex", 0),
+                bgTheme = o.optString("bgTheme", "none"),
                 attachments = attachmentsList,
                 createdAt = created,
                 updatedAt = updated,
             )
         }
         return notes
+    }
+
+    private fun createDefaultSampleNotes(): List<Note> {
+        val now = System.currentTimeMillis()
+        val groceryTasks = listOf(
+            "- [ ] Tomatoes",
+            "- [ ] Fresh garlic",
+            "- [ ] Chicken breasts",
+            "- [ ] Red onions & sweet potatoes",
+            "- [ ] Lettuce & cucumbers",
+            "- [x] Fresh parsley"
+        ).joinToString("\n")
+
+        val groceryNote = Note(
+            id = 101L,
+            title = "Grocery List",
+            body = groceryTasks,
+            isPinned = true,
+            isChecklist = true,
+            colorIndex = 1, // Coral / Peach
+            bgTheme = "grocery",
+            createdAt = now - 7200000L,
+            updatedAt = now - 1800000L
+        )
+
+        val gardenNote = Note(
+            id = 102L,
+            title = "Garden care reminders",
+            body = "Remember to water Sarah's garden and feed their cat while they're away next week.\n\nKeep the indoor orchids out of direct sunlight.",
+            isPinned = false,
+            isChecklist = false,
+            colorIndex = 4, // Mint
+            bgTheme = "floral",
+            createdAt = now - 86400000L,
+            updatedAt = now - 3600000L
+        )
+
+        val tripNote = Note(
+            id = 103L,
+            title = "Japan trip itinerary",
+            body = "- [ ] Visit Asakusa Sensoji Temple\n- [ ] Hop on the train to Harajuku\n- [ ] Shibuya sky observation deck\n- [x] Book pocket Wi-Fi router",
+            isPinned = true,
+            isChecklist = true,
+            colorIndex = 6, // Fog / Light Blue
+            bgTheme = "travel",
+            createdAt = now - 172800000L,
+            updatedAt = now - 5400000L
+        )
+
+        val physicalNote = Note(
+            id = 104L,
+            title = "Prep for Annual Physical",
+            body = "Goal for visit: Discuss knee comfort after morning runs and get annual lab work done.\n\nQuestions:\n- What are the best stretching exercises for flexibility?\n- Could dietary changes improve afternoon energy levels?",
+            isPinned = false,
+            isChecklist = false,
+            colorIndex = 3, // Sand / Yellow
+            bgTheme = "none",
+            createdAt = now - 259200000L,
+            updatedAt = now - 10800000L
+        )
+
+        return listOf(groceryNote, gardenNote, tripNote, physicalNote)
     }
 
     fun getActiveNotes(): List<Note> {
@@ -183,6 +283,16 @@ class NoteStore(private val context: Context) {
         save(note.copy(isFavorite = !note.isFavorite))
     }
 
+    fun toggleTask(id: Long, taskIndex: Int) {
+        val note = loadAll().firstOrNull { it.id == id } ?: return
+        val tasks = note.parseTasks().toMutableList()
+        if (taskIndex in tasks.indices) {
+            val current = tasks[taskIndex]
+            tasks[taskIndex] = current.copy(isDone = !current.isDone)
+            save(note.updateWithTasks(tasks))
+        }
+    }
+
     /** Copy picked URI to internal files directory so it is safely accessible permanently. */
     fun copyUriToInternalStorage(uri: Uri): Attachment? {
         return try {
@@ -248,6 +358,7 @@ class NoteStore(private val context: Context) {
                     isFavorite = o.optBoolean("isFavorite", false),
                     folder = o.optString("folder", ""),
                     colorIndex = o.optInt("colorIndex", 0),
+                    bgTheme = o.optString("bgTheme", "none"),
                     updatedAt = o.optLong("updatedAt", System.currentTimeMillis()),
                 )
             }
@@ -301,6 +412,7 @@ class NoteStore(private val context: Context) {
                     .put("isArchived", n.isArchived)
                     .put("isTrashed", n.isTrashed)
                     .put("colorIndex", n.colorIndex)
+                    .put("bgTheme", n.bgTheme)
                     .put("attachments", attArray)
                     .put("createdAt", n.createdAt)
                     .put("updatedAt", n.updatedAt)

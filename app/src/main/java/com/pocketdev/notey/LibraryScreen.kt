@@ -9,10 +9,12 @@ import android.widget.Toast
 import android.widget.VideoView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -24,6 +26,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -51,12 +55,14 @@ fun LibraryScreen(
         }
     }
 
+    val filterOptions = listOf("All", "Images", "Diagrams", "Docs")
+
     val filteredList = remember(allAttachments, searchQuery, selectedFilter) {
         allAttachments.filter { (att, _) ->
             val matchesFilter = when (selectedFilter) {
                 "Images" -> att.type == AttachmentType.IMAGE
-                "Videos" -> att.type == AttachmentType.VIDEO
-                "Documents" -> att.type == AttachmentType.FILE
+                "Diagrams" -> att.displayName.endsWith(".json", ignoreCase = true) || att.displayName.contains("canvas", ignoreCase = true)
+                "Docs" -> att.type == AttachmentType.FILE && !att.displayName.endsWith(".json", ignoreCase = true)
                 else -> true
             }
             val matchesSearch = searchQuery.isBlank() || att.displayName.contains(searchQuery, ignoreCase = true)
@@ -67,57 +73,147 @@ fun LibraryScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(NoteySurfaces.Surface0)
     ) {
-        // App Bar & Title
+        // Vault Header
         Surface(
-            tonalElevation = 2.dp,
-            color = MaterialTheme.colorScheme.surface,
+            color = NoteySurfaces.Surface1,
+            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "Library",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "${allAttachments.size} files across your notes",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                NoteyIcons.Vault,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Vault / Asset Manager",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = NoteySurfaces.TextPrimary
+                            )
+                        }
+                        Text(
+                            text = "${allAttachments.size} indexed assets in local vault",
+                            style = TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                color = NoteySurfaces.TextMuted
+                            )
+                        )
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Search Bar
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search files & attachments...") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
+                // Search Capsule
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = NoteySurfaces.Surface2,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
                     modifier = Modifier.fillMaxWidth()
-                )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = null,
+                            tint = NoteySurfaces.TextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            singleLine = true,
+                            textStyle = TextStyle(
+                                color = NoteySurfaces.TextPrimary,
+                                fontSize = 13.sp,
+                                fontFamily = FontFamily.SansSerif
+                            ),
+                            modifier = Modifier.weight(1f),
+                            decorationBox = { innerTextField ->
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        "Filter by asset name or extension...",
+                                        style = TextStyle(
+                                            color = NoteySurfaces.TextMuted,
+                                            fontSize = 13.sp
+                                        )
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        )
+                        if (searchQuery.isNotEmpty()) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Clear",
+                                tint = NoteySurfaces.TextMuted,
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clickable { searchQuery = "" }
+                            )
+                        }
+                    }
+                }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // Filter Chips
+                // Filter Tabs (All, Images, Diagrams, Docs)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    listOf("All", "Images", "Videos", "Documents").forEach { label ->
-                        FilterChip(
-                            selected = selectedFilter == label,
-                            onClick = { selectedFilter = label },
-                            label = { Text(label) }
-                        )
+                    filterOptions.forEach { filter ->
+                        val isSelected = selectedFilter == filter
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else NoteySurfaces.Surface3,
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else NoteySurfaces.HairlineBorder
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { selectedFilter = filter }
+                        ) {
+                            Text(
+                                text = filter,
+                                modifier = Modifier.padding(vertical = 6.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                style = TextStyle(
+                                    fontFamily = FontFamily.SansSerif,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                    fontSize = 12.sp,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else NoteySurfaces.TextSecondary
+                                )
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // List of files
+        // Vault Content: High-density 2-Column Grid
         if (filteredList.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -127,39 +223,47 @@ fun LibraryScreen(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
-                        NoteyIcons.Folder,
+                        NoteyIcons.Vault,
                         contentDescription = null,
-                        modifier = Modifier.size(54.dp),
-                        tint = MaterialTheme.colorScheme.primary
+                        tint = NoteySurfaces.TextMuted,
+                        modifier = Modifier.size(40.dp)
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = if (searchQuery.isNotBlank()) "No files match your search" else "No attachments yet",
+                        text = "No assets found in vault",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
+                        color = NoteySurfaces.TextSecondary
                     )
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Attach photos, videos, or documents to your notes to view them here.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "Attached files from notes and canvases appear here",
+                        style = TextStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            color = NoteySurfaces.TextMuted
+                        )
                     )
                 }
             }
         } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                contentPadding = PaddingValues(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxSize()
             ) {
-                items(filteredList, key = { it.first.id }) { (attachment, parentNote) ->
-                    FileCard(
-                        attachment = attachment,
+                items(filteredList, key = { it.first.id }) { (att, parentNote) ->
+                    VaultAssetCard(
+                        attachment = att,
                         parentNoteTitle = parentNote.title.ifBlank { "Untitled Note" },
-                        onClick = { activePreviewAttachment = attachment },
+                        onClick = { activePreviewAttachment = att },
+                        onOpenParent = {
+                            if (onOpenNote != null) onOpenNote(parentNote.id)
+                        },
                         onDelete = {
-                            val updatedAtts = parentNote.attachments.filter { it.id != attachment.id }
-                            try { File(attachment.filePath).delete() } catch (_: Exception) {}
+                            val updatedAtts = parentNote.attachments.filter { it.id != att.id }
+                            try { File(att.filePath).delete() } catch (_: Exception) {}
                             noteStore.save(parentNote.copy(attachments = updatedAtts))
                             notes = noteStore.loadAll()
                         }
@@ -169,20 +273,22 @@ fun LibraryScreen(
         }
     }
 
-    // Media Popup Player Dialog
+    // Active Preview Modal
     if (activePreviewAttachment != null) {
         val att = activePreviewAttachment!!
         Dialog(onDismissRequest = { activePreviewAttachment = null }) {
             Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(12.dp),
+                color = NoteySurfaces.Surface2,
+                border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(8.dp)
+                    .padding(16.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .imePadding()
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -193,70 +299,62 @@ fun LibraryScreen(
                             text = att.displayName,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
+                            color = NoteySurfaces.TextPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
                         IconButton(onClick = { activePreviewAttachment = null }) {
-                            Icon(Icons.Default.Close, contentDescription = "Close")
+                            Icon(Icons.Default.Close, contentDescription = "Close", tint = NoteySurfaces.TextSecondary)
                         }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    val file = File(att.filePath)
-                    if (!file.exists()) {
-                        Text("File is no longer available on disk", color = MaterialTheme.colorScheme.error)
-                    } else if (att.type == AttachmentType.IMAGE) {
-                        val bitmap = remember(att.filePath) {
-                            try {
-                                BitmapFactory.decodeFile(att.filePath)
-                            } catch (e: Exception) {
-                                null
-                            }
+                    if (att.type == AttachmentType.IMAGE) {
+                        val bmp = remember(att.filePath) {
+                            try { BitmapFactory.decodeFile(att.filePath) } catch (_: Exception) { null }
                         }
-                        if (bitmap != null) {
+                        if (bmp != null) {
                             Image(
-                                bitmap = bitmap.asImageBitmap(),
+                                bitmap = bmp.asImageBitmap(),
                                 contentDescription = att.displayName,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(max = 350.dp)
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .heightIn(max = 280.dp)
+                                    .clip(RoundedCornerShape(8.dp))
                             )
-                        } else {
-                            Text("Unable to render image bitmap")
                         }
                     } else if (att.type == AttachmentType.VIDEO) {
                         AndroidView(
                             factory = { ctx ->
                                 VideoView(ctx).apply {
-                                    setVideoPath(att.filePath)
-                                    val controller = MediaController(ctx)
-                                    controller.setAnchorView(this)
-                                    setMediaController(controller)
+                                    setVideoURI(Uri.fromFile(File(att.filePath)))
+                                    val mediaController = MediaController(ctx)
+                                    mediaController.setAnchorView(this)
+                                    setMediaController(mediaController)
                                     start()
                                 }
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(260.dp)
-                                .clip(RoundedCornerShape(12.dp))
+                                .height(220.dp)
+                                .clip(RoundedCornerShape(8.dp))
                         )
                     } else {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(24.dp)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp)
+                                .background(NoteySurfaces.Surface3, RoundedCornerShape(8.dp)),
+                            contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                Icons.Default.AccountBox,
+                                NoteyIcons.Document,
                                 contentDescription = null,
-                                modifier = Modifier.size(52.dp),
-                                tint = MaterialTheme.colorScheme.primary
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(48.dp)
                             )
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Text(att.displayName, fontWeight = FontWeight.Bold)
-                            Text("${att.sizeBytes / 1024} KB • ${att.mimeType}")
                         }
                     }
 
@@ -264,37 +362,16 @@ fun LibraryScreen(
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Button(
+                        OutlinedButton(
                             onClick = {
                                 try {
                                     val uri = FileProvider.getUriForFile(
                                         context,
-                                        "${context.packageName}.fileprovider",
-                                        file
-                                    )
-                                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                                        setDataAndType(uri, att.mimeType)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                    context.startActivity(Intent.createChooser(intent, "Open file"))
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "No app available to open this file", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Open in App")
-                        }
-
-                        FilledTonalIconButton(
-                            onClick = {
-                                try {
-                                    val uri = FileProvider.getUriForFile(
-                                        context,
-                                        "${context.packageName}.fileprovider",
-                                        file
+                                        "${context.packageName}.provider",
+                                        File(att.filePath)
                                     )
                                     val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                         type = att.mimeType
@@ -305,9 +382,12 @@ fun LibraryScreen(
                                 } catch (e: Exception) {
                                     Toast.makeText(context, "Cannot share file", Toast.LENGTH_SHORT).show()
                                 }
-                            }
+                            },
+                            shape = RoundedCornerShape(8.dp)
                         ) {
-                            Icon(Icons.Default.Share, contentDescription = "Share")
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Share", fontSize = 12.sp)
                         }
                     }
                 }
@@ -317,18 +397,13 @@ fun LibraryScreen(
 }
 
 @Composable
-fun FileCard(
+fun VaultAssetCard(
     attachment: Attachment,
     parentNoteTitle: String,
     onClick: () -> Unit,
+    onOpenParent: () -> Unit,
     onDelete: () -> Unit
 ) {
-    val iconStr = when (attachment.type) {
-        AttachmentType.IMAGE -> "🖼️"
-        AttachmentType.VIDEO -> "🎬"
-        AttachmentType.FILE -> "📄"
-    }
-
     val sizeStr = if (attachment.sizeBytes > 1024 * 1024) {
         "%.1f MB".format(attachment.sizeBytes / (1024.0 * 1024.0))
     } else {
@@ -336,55 +411,115 @@ fun FileCard(
     }
 
     Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp,
+        shape = RoundedCornerShape(8.dp),
+        color = NoteySurfaces.Surface1,
+        border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            // Visual Preview Box
             Box(
                 modifier = Modifier
-                    .size(46.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer),
+                    .fillMaxWidth()
+                    .height(84.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(NoteySurfaces.Surface2),
                 contentAlignment = Alignment.Center
             ) {
-                Text(iconStr, fontSize = 24.sp)
+                if (attachment.type == AttachmentType.IMAGE) {
+                    val bmp = remember(attachment.filePath) {
+                        try { BitmapFactory.decodeFile(attachment.filePath) } catch (_: Exception) { null }
+                    }
+                    if (bmp != null) {
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = attachment.displayName,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
+                    } else {
+                        Icon(NoteyIcons.Document, contentDescription = null, tint = NoteySurfaces.TextMuted)
+                    }
+                } else if (attachment.type == AttachmentType.VIDEO) {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                } else {
+                    Icon(
+                        NoteyIcons.Document,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = attachment.displayName,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "$sizeStr • In: $parentNoteTitle",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+            // File Name
+            Text(
+                text = attachment.displayName,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = NoteySurfaces.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
 
-            IconButton(onClick = onDelete) {
+            // Byte Size in JetBrains Mono style
+            Text(
+                text = sizeStr,
+                style = TextStyle(
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    color = NoteySurfaces.TextMuted
+                )
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Backlink to Parent
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable(onClick = onOpenParent),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Icon(
-                    Icons.Default.Delete,
-                    contentDescription = "Delete attachment",
-                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                    modifier = Modifier.size(20.dp)
+                    NoteyIcons.Paperclip,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                    modifier = Modifier.size(12.dp)
                 )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = parentNoteTitle,
+                    style = TextStyle(
+                        fontFamily = FontFamily.SansSerif,
+                        fontSize = 10.sp,
+                        color = NoteySurfaces.TextSecondary
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(20.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Delete",
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
             }
         }
     }

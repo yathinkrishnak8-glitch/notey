@@ -146,12 +146,14 @@ fun ProfileSetupScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedButton(
                         onClick = { photoPickerLauncher.launch("image/*") },
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("📷 Choose Avatar (Optional)", fontSize = 13.sp)
+                        Icon(NoteyIcons.Camera, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Choose Avatar (Optional)", fontSize = 13.sp)
                     }
                     if (avatarUri != null) {
                         TextButton(onClick = { avatarUri = null }) {

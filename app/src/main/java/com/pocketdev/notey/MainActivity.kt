@@ -18,13 +18,21 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
+import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -34,15 +42,28 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.delay
 import java.io.File
 import java.text.DateFormat
@@ -53,7 +74,7 @@ enum class NavDestination {
 }
 
 enum class ScreenState {
-    SPLASH, PROFILE_SETUP, MAIN, NOTE_READER, NOTE_EDITOR, SEARCH, LOGO_STUDIO
+    SPLASH, PROFILE_SETUP, MAIN, NOTE_READER, NOTE_EDITOR, SEARCH
 }
 
 class MainActivity : ComponentActivity() {
@@ -111,7 +132,10 @@ fun NoteyApp(
     }
     var currentDestination by remember { mutableStateOf(NavDestination.HOME) }
     var activeNoteId by remember { mutableStateOf<Long?>(null) }
+    var isStartingAsChecklist by remember { mutableStateOf(false) }
     var showQuickCreateSheet by remember { mutableStateOf(false) }
+    var activeQuickEditNote by remember { mutableStateOf<Note?>(null) }
+    var showCommandPalette by remember { mutableStateOf(false) }
     var canvasDocIdToOpen by remember { mutableStateOf<String?>(null) }
     var searchScopeFilter by remember { mutableStateOf("All") }
 
@@ -120,15 +144,11 @@ fun NoteyApp(
     // Handle system back button
     BackHandler(enabled = screenState != ScreenState.MAIN) {
         when (screenState) {
-            ScreenState.NOTE_READER, ScreenState.NOTE_EDITOR, ScreenState.SEARCH, ScreenState.LOGO_STUDIO -> {
+            ScreenState.NOTE_READER, ScreenState.NOTE_EDITOR, ScreenState.SEARCH -> {
                 screenState = ScreenState.MAIN
             }
-            ScreenState.PROFILE_SETUP -> {
-                // If profile is not yet configured, back exits or stays on profile setup
-            }
-            ScreenState.SPLASH -> {
-                // Let system exit
-            }
+            ScreenState.PROFILE_SETUP -> {}
+            ScreenState.SPLASH -> {}
             else -> {}
         }
     }
@@ -173,6 +193,7 @@ fun NoteyApp(
                     noteId = activeNoteId,
                     noteStore = noteStore,
                     settings = settings,
+                    initialIsChecklist = isStartingAsChecklist,
                     onBack = { screenState = ScreenState.MAIN },
                     onSaved = { savedId ->
                         activeNoteId = savedId
@@ -197,65 +218,100 @@ fun NoteyApp(
                     onBack = { screenState = ScreenState.MAIN }
                 )
             }
-            ScreenState.LOGO_STUDIO -> {
-                LogoStudioScreen(
-                    onBack = { screenState = ScreenState.MAIN }
-                )
-            }
             ScreenState.MAIN -> {
                 Scaffold(
                     bottomBar = {
-                        NavigationBar(
-                            containerColor = MaterialTheme.colorScheme.surface,
-                            tonalElevation = 3.dp
-                        ) {
-                            NavigationBarItem(
-                                selected = currentDestination == NavDestination.HOME,
-                                onClick = { currentDestination = NavDestination.HOME },
-                                icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
-                                label = { Text("Home") }
-                            )
-                            NavigationBarItem(
-                                selected = currentDestination == NavDestination.NOTES,
-                                onClick = { currentDestination = NavDestination.NOTES },
-                                icon = { Icon(Icons.Default.Edit, contentDescription = "Notes") },
-                                label = { Text("Notes") }
-                            )
-                            NavigationBarItem(
-                                selected = currentDestination == NavDestination.CANVAS,
-                                onClick = {
-                                    canvasDocIdToOpen = null
-                                    currentDestination = NavDestination.CANVAS
-                                },
-                                icon = { Icon(Icons.Default.Share, contentDescription = "Canvas") },
-                                label = { Text("Canvas") }
-                            )
-                            NavigationBarItem(
-                                selected = currentDestination == NavDestination.LIBRARY,
-                                onClick = { currentDestination = NavDestination.LIBRARY },
-                                icon = { Icon(NoteyIcons.Folder, contentDescription = "Library") },
-                                label = { Text("Library") }
-                            )
-                            NavigationBarItem(
-                                selected = currentDestination == NavDestination.SETTINGS,
-                                onClick = { currentDestination = NavDestination.SETTINGS },
-                                icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                                label = { Text("Settings") }
-                            )
+                        // Bottom nav hidden when visual canvas is active
+                        if (currentDestination != NavDestination.CANVAS) {
+                            NavigationBar(
+                                containerColor = NoteySurfaces.Surface1,
+                                tonalElevation = 0.dp,
+                                modifier = Modifier.border(width = 1.dp, color = NoteySurfaces.HairlineBorder)
+                            ) {
+                                NavigationBarItem(
+                                    selected = currentDestination == NavDestination.HOME,
+                                    onClick = { currentDestination = NavDestination.HOME },
+                                    icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
+                                    label = { Text("Home") },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = Color(0xFF38BDF8),
+                                        selectedTextColor = Color(0xFF38BDF8),
+                                        indicatorColor = NoteySurfaces.Surface3,
+                                        unselectedIconColor = NoteySurfaces.TextMuted,
+                                        unselectedTextColor = NoteySurfaces.TextMuted
+                                    )
+                                )
+                                NavigationBarItem(
+                                    selected = currentDestination == NavDestination.NOTES,
+                                    onClick = { currentDestination = NavDestination.NOTES },
+                                    icon = { Icon(NoteyIcons.Document, contentDescription = "Notes") },
+                                    label = { Text("Notes") },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = Color(0xFF38BDF8),
+                                        selectedTextColor = Color(0xFF38BDF8),
+                                        indicatorColor = NoteySurfaces.Surface3,
+                                        unselectedIconColor = NoteySurfaces.TextMuted,
+                                        unselectedTextColor = NoteySurfaces.TextMuted
+                                    )
+                                )
+                                NavigationBarItem(
+                                    selected = currentDestination == NavDestination.CANVAS,
+                                    onClick = {
+                                        canvasDocIdToOpen = null
+                                        currentDestination = NavDestination.CANVAS
+                                    },
+                                    icon = { Icon(NoteyIcons.Workflow, contentDescription = "Canvas") },
+                                    label = { Text("Canvas") },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = Color(0xFF38BDF8),
+                                        selectedTextColor = Color(0xFF38BDF8),
+                                        indicatorColor = NoteySurfaces.Surface3,
+                                        unselectedIconColor = NoteySurfaces.TextMuted,
+                                        unselectedTextColor = NoteySurfaces.TextMuted
+                                    )
+                                )
+                                NavigationBarItem(
+                                    selected = currentDestination == NavDestination.LIBRARY,
+                                    onClick = { currentDestination = NavDestination.LIBRARY },
+                                    icon = { Icon(NoteyIcons.Vault, contentDescription = "Vault") },
+                                    label = { Text("Vault") },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = Color(0xFF38BDF8),
+                                        selectedTextColor = Color(0xFF38BDF8),
+                                        indicatorColor = NoteySurfaces.Surface3,
+                                        unselectedIconColor = NoteySurfaces.TextMuted,
+                                        unselectedTextColor = NoteySurfaces.TextMuted
+                                    )
+                                )
+                                NavigationBarItem(
+                                    selected = currentDestination == NavDestination.SETTINGS,
+                                    onClick = { currentDestination = NavDestination.SETTINGS },
+                                    icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                                    label = { Text("Settings") },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = Color(0xFF38BDF8),
+                                        selectedTextColor = Color(0xFF38BDF8),
+                                        indicatorColor = NoteySurfaces.Surface3,
+                                        unselectedIconColor = NoteySurfaces.TextMuted,
+                                        unselectedTextColor = NoteySurfaces.TextMuted
+                                    )
+                                )
+                            }
                         }
                     },
                     floatingActionButton = {
                         if (currentDestination in listOf(NavDestination.HOME, NavDestination.NOTES)) {
                             FloatingActionButton(
                                 onClick = { showQuickCreateSheet = true },
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = Color.White,
-                                shape = RoundedCornerShape(16.dp)
+                                containerColor = Color(0xFF38BDF8),
+                                contentColor = Color.Black,
+                                shape = RoundedCornerShape(14.dp)
                             ) {
                                 Icon(Icons.Default.Add, contentDescription = "Create New")
                             }
                         }
-                    }
+                    },
+                    containerColor = NoteySurfaces.Surface0
                 ) { paddingValues ->
                     Box(
                         modifier = Modifier
@@ -268,10 +324,7 @@ fun NoteyApp(
                                     noteStore = noteStore,
                                     canvasStore = canvasStore,
                                     userProfile = userProfile,
-                                    onSearchClick = {
-                                        searchScopeFilter = "All"
-                                        screenState = ScreenState.SEARCH
-                                    },
+                                    onSearchClick = { showCommandPalette = true },
                                     onOpenNote = { id ->
                                         activeNoteId = id
                                         screenState = ScreenState.NOTE_READER
@@ -284,40 +337,52 @@ fun NoteyApp(
                                         when (action) {
                                             "note" -> {
                                                 activeNoteId = null
+                                                isStartingAsChecklist = false
                                                 screenState = ScreenState.NOTE_EDITOR
                                             }
                                             "checklist" -> {
                                                 activeNoteId = null
+                                                isStartingAsChecklist = true
                                                 screenState = ScreenState.NOTE_EDITOR
                                             }
                                             "canvas" -> {
                                                 canvasDocIdToOpen = null
                                                 currentDestination = NavDestination.CANVAS
                                             }
-                                            "logo" -> {
-                                                screenState = ScreenState.LOGO_STUDIO
-                                            }
-                                            "folder" -> {
-                                                currentDestination = NavDestination.NOTES
+                                            "vault" -> {
+                                                currentDestination = NavDestination.LIBRARY
                                             }
                                         }
+                                    },
+                                    onQuickEdit = { note ->
+                                        activeQuickEditNote = note
                                     }
                                 )
                             }
                             NavDestination.NOTES -> {
                                 NotesListView(
                                     noteStore = noteStore,
+                                    userProfile = userProfile,
                                     onOpenNote = { id ->
                                         activeNoteId = id
                                         screenState = ScreenState.NOTE_READER
                                     },
                                     onCreateNote = {
                                         activeNoteId = null
+                                        isStartingAsChecklist = false
                                         screenState = ScreenState.NOTE_EDITOR
                                     },
-                                    onSearchClick = {
-                                        searchScopeFilter = "Notes"
-                                        screenState = ScreenState.SEARCH
+                                    onCreateChecklist = {
+                                        activeNoteId = null
+                                        isStartingAsChecklist = true
+                                        screenState = ScreenState.NOTE_EDITOR
+                                    },
+                                    onSearchClick = { showCommandPalette = true },
+                                    onOpenSettings = {
+                                        currentDestination = NavDestination.SETTINGS
+                                    },
+                                    onQuickEdit = { note ->
+                                        activeQuickEditNote = note
                                     }
                                 )
                             }
@@ -362,15 +427,76 @@ fun NoteyApp(
         }
     }
 
+    // Command Palette Modal Launcher
+    if (showCommandPalette) {
+        CommandPaletteDialog(
+            noteStore = noteStore,
+            canvasStore = canvasStore,
+            onDismiss = { showCommandPalette = false },
+            onOpenNote = { id ->
+                showCommandPalette = false
+                activeNoteId = id
+                screenState = ScreenState.NOTE_READER
+            },
+            onOpenCanvas = { cid ->
+                showCommandPalette = false
+                canvasDocIdToOpen = cid
+                currentDestination = NavDestination.CANVAS
+                screenState = ScreenState.MAIN
+            },
+            onAction = { action ->
+                showCommandPalette = false
+                when (action) {
+                    "note" -> {
+                        activeNoteId = null
+                        isStartingAsChecklist = false
+                        screenState = ScreenState.NOTE_EDITOR
+                    }
+                    "checklist" -> {
+                        activeNoteId = null
+                        isStartingAsChecklist = true
+                        screenState = ScreenState.NOTE_EDITOR
+                    }
+                    "canvas" -> {
+                        canvasDocIdToOpen = null
+                        currentDestination = NavDestination.CANVAS
+                        screenState = ScreenState.MAIN
+                    }
+                    "vault" -> {
+                        currentDestination = NavDestination.LIBRARY
+                        screenState = ScreenState.MAIN
+                    }
+                    "settings" -> {
+                        currentDestination = NavDestination.SETTINGS
+                        screenState = ScreenState.MAIN
+                    }
+                }
+            }
+        )
+    }
+
+    // Card Quick Edit & File Manager Bottom Sheet
+    if (activeQuickEditNote != null) {
+        CardQuickEditBottomSheet(
+            note = activeQuickEditNote!!,
+            noteStore = noteStore,
+            onDismiss = { activeQuickEditNote = null },
+            onSaved = { activeQuickEditNote = null }
+        )
+    }
+
     // Quick Create Modal Bottom Sheet
     if (showQuickCreateSheet) {
         ModalBottomSheet(
             onDismissRequest = { showQuickCreateSheet = false },
-            sheetState = rememberModalBottomSheetState()
+            sheetState = rememberModalBottomSheetState(),
+            containerColor = NoteySurfaces.Surface2
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .imePadding()
+                    .navigationBarsPadding()
                     .padding(horizontal = 20.dp, vertical = 12.dp)
             ) {
                 Row(
@@ -380,42 +506,45 @@ fun NoteyApp(
                 ) {
                     Text(
                         text = "Create New",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = NoteySurfaces.TextPrimary
                     )
                     IconButton(onClick = { showQuickCreateSheet = false }) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = NoteySurfaces.TextSecondary)
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 QuickCreateMenuItem(
-                    icon = Icons.Default.Edit,
-                    title = "New Note",
-                    subtitle = "Write a simple note",
+                    icon = NoteyIcons.Document,
+                    title = "New Document",
+                    subtitle = "Capture ideas in deep focus markdown",
                     onClick = {
                         showQuickCreateSheet = false
                         activeNoteId = null
+                        isStartingAsChecklist = false
                         screenState = ScreenState.NOTE_EDITOR
                     }
                 )
 
                 QuickCreateMenuItem(
-                    icon = Icons.Default.Check,
+                    icon = NoteyIcons.TaskCheck,
                     title = "New Checklist",
-                    subtitle = "Create a task list",
+                    subtitle = "Structured action items and todos",
                     onClick = {
                         showQuickCreateSheet = false
                         activeNoteId = null
+                        isStartingAsChecklist = true
                         screenState = ScreenState.NOTE_EDITOR
                     }
                 )
 
                 QuickCreateMenuItem(
-                    icon = Icons.Default.Share,
-                    title = "New Canvas",
-                    subtitle = "Visual workspace & flowchart",
+                    icon = NoteyIcons.Workflow,
+                    title = "New Visual Canvas",
+                    subtitle = "Infinite board with nodes & connections",
                     onClick = {
                         showQuickCreateSheet = false
                         canvasDocIdToOpen = null
@@ -424,22 +553,12 @@ fun NoteyApp(
                 )
 
                 QuickCreateMenuItem(
-                    icon = Icons.Default.Star,
-                    title = "Logo Studio",
-                    subtitle = "Create logos & brand emblems",
+                    icon = NoteyIcons.Vault,
+                    title = "Asset Vault",
+                    subtitle = "Browse library of files and media",
                     onClick = {
                         showQuickCreateSheet = false
-                        screenState = ScreenState.LOGO_STUDIO
-                    }
-                )
-
-                QuickCreateMenuItem(
-                    icon = NoteyIcons.Folder,
-                    title = "New Folder",
-                    subtitle = "Organize your notes into collections",
-                    onClick = {
-                        showQuickCreateSheet = false
-                        currentDestination = NavDestination.NOTES
+                        currentDestination = NavDestination.LIBRARY
                     }
                 )
 
@@ -457,8 +576,9 @@ fun QuickCreateMenuItem(
     onClick: () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(12.dp),
+        color = NoteySurfaces.Surface1,
+        border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
@@ -470,17 +590,17 @@ fun QuickCreateMenuItem(
         ) {
             Box(
                 modifier = Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer),
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(NoteySurfaces.Surface3),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(22.dp))
+                Icon(icon, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(20.dp))
             }
             Spacer(modifier = Modifier.width(14.dp))
             Column {
-                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = NoteySurfaces.TextPrimary)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = NoteySurfaces.TextSecondary)
             }
         }
     }
@@ -491,7 +611,7 @@ fun SplashScreen(onFinish: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0F071D))
+            .background(NoteySurfaces.Surface0)
             .clickable(onClick = onFinish),
         contentAlignment = Alignment.Center
     ) {
@@ -501,13 +621,18 @@ fun SplashScreen(onFinish: () -> Unit) {
         ) {
             Box(
                 modifier = Modifier
-                    .size(90.dp)
-                    .clip(RoundedCornerShape(26.dp))
-                    .background(Color(0xFF9333EA))
-                    .shadow(16.dp, RoundedCornerShape(26.dp)),
+                    .size(80.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(NoteySurfaces.Surface1)
+                    .border(1.dp, NoteySurfaces.HairlineBorder, RoundedCornerShape(20.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Text("🪶", fontSize = 50.sp)
+                Icon(
+                    NoteyIcons.Workflow,
+                    contentDescription = "Notey Logo",
+                    tint = Color(0xFF38BDF8),
+                    modifier = Modifier.size(42.dp)
+                )
             }
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -516,23 +641,56 @@ fun SplashScreen(onFinish: () -> Unit) {
                 text = "Notey",
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = NoteySurfaces.TextPrimary
             )
 
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "Capture anything. Organize everything. Connect ideas.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFFC084FC)
+                text = "Workspace. Notes. Visual Canvas.",
+                style = MonoMetadataStyle,
+                color = NoteySurfaces.TextSecondary
             )
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(36.dp))
+        }
+    }
+}
 
+@Composable
+fun CreationMatrixItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    accent: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = NoteySurfaces.Surface1,
+        border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
+        modifier = modifier.clickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(accent.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = label, tint = accent, modifier = Modifier.size(18.dp))
+            }
+            Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = SettingsStore.DEVELOPER_ATTRIBUTION,
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.6f)
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = NoteySurfaces.TextPrimary
             )
         }
     }
@@ -546,46 +704,111 @@ fun HomeDashboardView(
     onSearchClick: () -> Unit,
     onOpenNote: (Long) -> Unit,
     onOpenCanvas: (String) -> Unit,
-    onQuickAction: (String) -> Unit
+    onQuickAction: (String) -> Unit,
+    onQuickEdit: (Note) -> Unit
 ) {
     val activeNotes = remember { noteStore.getActiveNotes() }
-    val pinnedNotes = remember(activeNotes) { activeNotes.filter { it.isPinned } }
-    val recentNotes = remember(activeNotes) { activeNotes.filter { !it.isPinned }.take(5) }
     val canvases = remember { canvasStore.loadAll() }
+
+    var selectedWorkspace by remember { mutableStateOf("Personal Workspace") }
+    var showWorkspaceMenu by remember { mutableStateOf(false) }
+    val workspaces = listOf("Personal Workspace", "Engineering", "Design", "Research")
+
+    var homeFilter by remember { mutableStateOf("All") }
+    val filterOptions = listOf("All", "Pinned", "Documents", "Workflows")
 
     val greetingText = remember(userProfile?.displayName) {
         UserProfileValidator.getTimeAwareGreeting(userProfile?.displayName ?: "")
     }
+
+    val displayedNotes = remember(activeNotes, homeFilter) {
+        when (homeFilter) {
+            "Pinned" -> activeNotes.filter { it.isPinned }
+            "Documents" -> activeNotes.filter { !it.isChecklist }
+            "Workflows" -> emptyList()
+            else -> activeNotes
+        }
+    }
+
+    val pinnedNotes = remember(displayedNotes) { displayedNotes.filter { it.isPinned } }
+    val recentNotes = remember(displayedNotes) { displayedNotes.filter { !it.isPinned } }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Dynamic Personalized Header with Avatar
+        // Workspace Switcher & Profile Header
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = greetingText,
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Here's what's happening today in your workspace.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            // Workspace Dropdown Capsule
+            Box {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = NoteySurfaces.Surface2,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
+                    modifier = Modifier.clickable { showWorkspaceMenu = true }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF38BDF8))
+                        )
+                        Spacer(modifier = Modifier.width(7.dp))
+                        Text(
+                            text = selectedWorkspace,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = NoteySurfaces.TextPrimary
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = NoteySurfaces.TextSecondary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+
+                DropdownMenu(
+                    expanded = showWorkspaceMenu,
+                    onDismissRequest = { showWorkspaceMenu = false },
+                    modifier = Modifier.background(NoteySurfaces.Surface2)
+                ) {
+                    workspaces.forEach { ws ->
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (ws == selectedWorkspace) {
+                                        Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                    } else {
+                                        Spacer(modifier = Modifier.width(24.dp))
+                                    }
+                                    Text(ws, color = NoteySurfaces.TextPrimary)
+                                }
+                            },
+                            onClick = {
+                                selectedWorkspace = ws
+                                showWorkspaceMenu = false
+                            }
+                        )
+                    }
+                }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
-
-            // Avatar Badge
+            // Initials Avatar
             val avatarBitmap = remember(userProfile?.avatarUri) {
                 if (userProfile?.avatarUri != null) {
                     try { BitmapFactory.decodeFile(userProfile.avatarUri) } catch (_: Exception) { null }
@@ -594,77 +817,162 @@ fun HomeDashboardView(
 
             Box(
                 modifier = Modifier
-                    .size(46.dp)
+                    .size(38.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
+                    .background(NoteySurfaces.Surface2)
+                    .border(1.dp, NoteySurfaces.HairlineBorder, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 if (avatarBitmap != null) {
                     Image(
                         bitmap = avatarBitmap.asImageBitmap(),
                         contentDescription = "Avatar",
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
                     )
                 } else {
                     Text(
                         text = UserProfileValidator.getInitials(userProfile?.displayName ?: "User"),
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MonoMetadataStyle,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                        color = Color(0xFF38BDF8)
                     )
                 }
             }
         }
 
-        // Search Bar trigger
+        // Greeting
+        Column {
+            Text(
+                text = greetingText,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = NoteySurfaces.TextPrimary
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "Workspace is synced and local-first.",
+                style = MonoMetadataStyle
+            )
+        }
+
+        // Omni-Search Capsule with ⌘K Badge
         Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = RoundedCornerShape(12.dp),
+            color = NoteySurfaces.Surface2,
+            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(onClick = onSearchClick)
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(modifier = Modifier.width(12.dp))
+                Icon(Icons.Default.Search, contentDescription = null, tint = NoteySurfaces.TextSecondary, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = "Search notes, files, canvases...",
+                    text = "Search workspace, notes, commands...",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                    color = NoteySurfaces.TextMuted,
+                    modifier = Modifier.weight(1f)
                 )
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = NoteySurfaces.Surface4,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder)
+                ) {
+                    Text(
+                        text = "⌘K",
+                        style = MonoMetadataStyle,
+                        color = NoteySurfaces.TextSecondary,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
             }
         }
 
-        // Quick Create Row
+        // 4-Item Creation Matrix
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            QuickActionPill(icon = Icons.Default.Edit, label = "Note", onClick = { onQuickAction("note") }, modifier = Modifier.weight(1f))
-            QuickActionPill(icon = Icons.Default.Check, label = "Checklist", onClick = { onQuickAction("checklist") }, modifier = Modifier.weight(1f))
-            QuickActionPill(icon = Icons.Default.Share, label = "Canvas", onClick = { onQuickAction("canvas") }, modifier = Modifier.weight(1f))
-            QuickActionPill(icon = Icons.Default.Star, label = "Logos", onClick = { onQuickAction("logo") }, modifier = Modifier.weight(1f))
+            CreationMatrixItem(
+                icon = NoteyIcons.Document,
+                label = "Doc",
+                accent = Color(0xFF38BDF8),
+                onClick = { onQuickAction("note") },
+                modifier = Modifier.weight(1f)
+            )
+            CreationMatrixItem(
+                icon = NoteyIcons.TaskCheck,
+                label = "Task",
+                accent = Color(0xFF34D399),
+                onClick = { onQuickAction("checklist") },
+                modifier = Modifier.weight(1f)
+            )
+            CreationMatrixItem(
+                icon = NoteyIcons.Workflow,
+                label = "Flow",
+                accent = Color(0xFFA78BFA),
+                onClick = { onQuickAction("canvas") },
+                modifier = Modifier.weight(1f)
+            )
+            CreationMatrixItem(
+                icon = NoteyIcons.Vault,
+                label = "Vault",
+                accent = Color(0xFFFBBF24),
+                onClick = { onQuickAction("vault") },
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        // Filter Chips Row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            filterOptions.forEach { filter ->
+                val isSelected = homeFilter == filter
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isSelected) NoteySurfaces.Surface3 else NoteySurfaces.Surface1,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (isSelected) Color(0xFF38BDF8) else NoteySurfaces.HairlineBorder
+                    ),
+                    modifier = Modifier.clickable { homeFilter = filter }
+                ) {
+                    Text(
+                        text = filter,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isSelected) Color(0xFF38BDF8) else NoteySurfaces.TextSecondary,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+            }
         }
 
         // Pinned Section
-        if (pinnedNotes.isNotEmpty()) {
+        if (pinnedNotes.isNotEmpty() && homeFilter != "Workflows") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        Icons.Default.Star,
+                        NoteyIcons.Pin,
                         contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.primary
+                        modifier = Modifier.size(14.dp),
+                        tint = Color(0xFF38BDF8)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "PINNED",
-                        style = MaterialTheme.typography.labelLarge,
+                        style = MonoMetadataStyle,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                        color = Color(0xFF38BDF8)
                     )
                 }
 
@@ -672,85 +980,100 @@ fun HomeDashboardView(
                     NoteCard(
                         note = note,
                         onClick = { onOpenNote(note.id) },
-                        onTogglePin = { noteStore.togglePin(note.id) }
+                        onTogglePin = { noteStore.togglePin(note.id) },
+                        onQuickEdit = { onQuickEdit(note) }
                     )
                 }
             }
         }
 
         // Recent Notes Section
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = "Recent Notes",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
+        if (homeFilter != "Workflows") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "DOCUMENTS & TASKS",
+                    style = MonoMetadataStyle,
+                    fontWeight = FontWeight.Bold
+                )
 
-            if (recentNotes.isEmpty() && pinnedNotes.isEmpty()) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                if (recentNotes.isEmpty() && pinnedNotes.isEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = NoteySurfaces.Surface1,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("📝", fontSize = 36.sp)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("No notes yet", fontWeight = FontWeight.SemiBold)
-                        Text("Tap + or New Note to write your first thought.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(NoteyIcons.Document, contentDescription = null, tint = NoteySurfaces.TextMuted, modifier = Modifier.size(28.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("No documents yet", fontWeight = FontWeight.SemiBold, color = NoteySurfaces.TextPrimary)
+                            Text("Tap Doc or Task to create your first item.", style = MonoMetadataStyle)
+                        }
                     }
-                }
-            } else {
-                recentNotes.forEach { note ->
-                    NoteCard(
-                        note = note,
-                        onClick = { onOpenNote(note.id) },
-                        onTogglePin = { noteStore.togglePin(note.id) }
-                    )
+                } else {
+                    recentNotes.forEach { note ->
+                        NoteCard(
+                            note = note,
+                            onClick = { onOpenNote(note.id) },
+                            onTogglePin = { noteStore.togglePin(note.id) },
+                            onQuickEdit = { onQuickEdit(note) }
+                        )
+                    }
                 }
             }
         }
 
-        // Recent Canvases & Workflows
-        if (canvases.isNotEmpty()) {
+        // Canvases & Workflows
+        if ((homeFilter == "All" || homeFilter == "Workflows") && canvases.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "Canvases & Workflows",
-                    style = MaterialTheme.typography.titleMedium,
+                    text = "VISUAL WORKFLOWS",
+                    style = MonoMetadataStyle,
                     fontWeight = FontWeight.Bold
                 )
 
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(canvases) { doc ->
                         Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            shape = RoundedCornerShape(12.dp),
+                            color = NoteySurfaces.Surface1,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
                             modifier = Modifier
                                 .width(220.dp)
                                 .clickable { onOpenCanvas(doc.id) }
                         ) {
                             Column(modifier = Modifier.padding(14.dp)) {
-                                Text(
-                                    text = if (doc.type == CanvasType.WORKFLOW) "⚡ Workflow" else "🔀 Canvas",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        NoteyIcons.Workflow,
+                                        contentDescription = null,
+                                        tint = Color(0xFFA78BFA),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = doc.type.name,
+                                        style = MonoMetadataStyle,
+                                        color = Color(0xFFA78BFA),
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
                                 Text(
                                     text = doc.name,
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold,
+                                    color = NoteySurfaces.TextPrimary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                Spacer(modifier = Modifier.height(6.dp))
+                                Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = "${doc.nodes.size} nodes • ${doc.connectors.size} connections",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    style = MonoMetadataStyle
                                 )
                             }
                         }
@@ -759,7 +1082,7 @@ fun HomeDashboardView(
             }
         }
 
-        Spacer(modifier = Modifier.height(40.dp))
+        Spacer(modifier = Modifier.height(36.dp))
     }
 }
 
@@ -771,18 +1094,19 @@ fun QuickActionPill(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 1.dp,
+        shape = RoundedCornerShape(10.dp),
+        color = NoteySurfaces.Surface1,
+        border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
         modifier = modifier.clickable(onClick = onClick)
     ) {
-        Column(
-            modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+        Row(
+            modifier = Modifier.padding(vertical = 10.dp, horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
         ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            Icon(icon, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = NoteySurfaces.TextPrimary)
         }
     }
 }
@@ -791,97 +1115,202 @@ fun QuickActionPill(
 @Composable
 fun NotesListView(
     noteStore: NoteStore,
+    userProfile: UserProfile?,
     onOpenNote: (Long) -> Unit,
     onCreateNote: () -> Unit,
-    onSearchClick: () -> Unit
+    onCreateChecklist: () -> Unit,
+    onSearchClick: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onQuickEdit: (Note) -> Unit
 ) {
     var notes by remember { mutableStateOf(noteStore.getActiveNotes()) }
     var selectedFilter by remember { mutableStateOf("All") }
     var selectedFolder by remember { mutableStateOf("") }
     var showFolderDialog by remember { mutableStateOf(false) }
+    var showAccountDialog by remember { mutableStateOf(false) }
+    var isGridView by remember { mutableStateOf(true) }
 
     val folders = remember(notes) { noteStore.getFolders() }
 
     val filteredNotes = remember(notes, selectedFilter, selectedFolder) {
         notes.filter { note ->
-            when (selectedFilter) {
-                "Recent" -> true
+            val matchesFolder = selectedFolder.isBlank() || note.folder.equals(selectedFolder, ignoreCase = true)
+            val matchesFilter = when (selectedFilter) {
+                "Notes" -> !note.isChecklist
+                "Tasks" -> note.isChecklist || note.body.contains("- [")
+                "Pinned" -> note.isPinned
                 "Favorites" -> note.isFavorite
-                "Checklists" -> note.isChecklist
-                "Folder" -> selectedFolder.isBlank() || note.folder.equals(selectedFolder, ignoreCase = true)
                 else -> true
             }
+            matchesFolder && matchesFilter
         }
     }
+
+    val pinnedNotes = remember(filteredNotes) { filteredNotes.filter { it.isPinned } }
+    val otherNotes = remember(filteredNotes) { filteredNotes.filter { !it.isPinned } }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(NoteySurfaces.Surface0)
     ) {
-        // App Bar
+        // Top Search Bar
         Surface(
-            tonalElevation = 2.dp,
-            color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.fillMaxWidth()
+            shape = RoundedCornerShape(12.dp),
+            color = NoteySurfaces.Surface2,
+            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onSearchClick) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = NoteySurfaces.TextSecondary
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable(onClick = onSearchClick)
+                        .padding(vertical = 10.dp)
                 ) {
                     Text(
-                        text = "Notes",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold
+                        text = "Search workspace...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = NoteySurfaces.TextMuted
                     )
-                    IconButton(onClick = onSearchClick) {
-                        Icon(Icons.Default.Search, contentDescription = "Search Notes")
-                    }
+                }
+                IconButton(onClick = { isGridView = !isGridView }) {
+                    Icon(
+                        imageVector = if (isGridView) NoteyIcons.ViewAgenda else NoteyIcons.GridView,
+                        contentDescription = "Toggle View",
+                        tint = NoteySurfaces.TextSecondary
+                    )
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Filter Chips
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                // Profile Avatar Button
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(NoteySurfaces.Surface3)
+                        .border(1.dp, NoteySurfaces.HairlineBorder, CircleShape)
+                        .clickable { showAccountDialog = true },
+                    contentAlignment = Alignment.Center
                 ) {
-                    listOf("All", "Recent", "Favorites", "Checklists").forEach { filter ->
-                        FilterChip(
-                            selected = selectedFilter == filter && selectedFolder.isBlank(),
-                            onClick = {
-                                selectedFilter = filter
-                                selectedFolder = ""
-                            },
-                            label = { Text(filter) }
+                    val avatarBmp = remember(userProfile?.avatarUri) {
+                        if (userProfile?.avatarUri != null) {
+                            try { BitmapFactory.decodeFile(userProfile.avatarUri) } catch (_: Exception) { null }
+                        } else null
+                    }
+                    if (avatarBmp != null) {
+                        Image(
+                            bitmap = avatarBmp.asImageBitmap(),
+                            contentDescription = "Profile",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Text(
+                            text = UserProfileValidator.getInitials(userProfile?.displayName ?: "U"),
+                            style = MonoMetadataStyle,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF38BDF8)
                         )
                     }
-
-                    if (folders.isNotEmpty()) {
-                        folders.forEach { fName ->
-                            FilterChip(
-                                selected = selectedFolder == fName,
-                                onClick = {
-                                    selectedFilter = "Folder"
-                                    selectedFolder = fName
-                                },
-                                label = { Text("📁 $fName") }
-                            )
-                        }
-                    }
-
-                    FilterChip(
-                        selected = false,
-                        onClick = { showFolderDialog = true },
-                        label = { Text("+ Folder") }
-                    )
                 }
+                Spacer(modifier = Modifier.width(4.dp))
             }
         }
 
-        // Notes List
+        // Filter Chips Row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            listOf("All", "Notes", "Tasks", "Pinned", "Favorites").forEach { filter ->
+                val isSelected = selectedFilter == filter && selectedFolder.isBlank()
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isSelected) NoteySurfaces.Surface3 else NoteySurfaces.Surface1,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (isSelected) Color(0xFF38BDF8) else NoteySurfaces.HairlineBorder
+                    ),
+                    modifier = Modifier.clickable {
+                        selectedFilter = filter
+                        selectedFolder = ""
+                    }
+                ) {
+                    Text(
+                        text = filter,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isSelected) Color(0xFF38BDF8) else NoteySurfaces.TextSecondary,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+            }
+
+            if (folders.isNotEmpty()) {
+                folders.forEach { fName ->
+                    val isSelected = selectedFolder == fName
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isSelected) NoteySurfaces.Surface3 else NoteySurfaces.Surface1,
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (isSelected) Color(0xFF38BDF8) else NoteySurfaces.HairlineBorder
+                        ),
+                        modifier = Modifier.clickable {
+                            selectedFilter = "Folder"
+                            selectedFolder = fName
+                        }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(NoteyIcons.Folder, contentDescription = null, tint = NoteySurfaces.TextSecondary, modifier = Modifier.size(12.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = fName,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isSelected) Color(0xFF38BDF8) else NoteySurfaces.TextSecondary
+                            )
+                        }
+                    }
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = NoteySurfaces.Surface1,
+                border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
+                modifier = Modifier.clickable { showFolderDialog = true }
+            ) {
+                Text(
+                    text = "+ Folder",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NoteySurfaces.TextSecondary,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+            }
+        }
+
+        // Notes Display (Empty state vs Grid vs List)
         if (filteredNotes.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -890,20 +1319,72 @@ fun NotesListView(
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("📝", fontSize = 48.sp)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("No notes found", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("Create a note or change your filters.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(NoteyIcons.Document, contentDescription = null, tint = NoteySurfaces.TextMuted, modifier = Modifier.size(36.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = if (selectedFilter == "Tasks") "No tasks found" else "No notes found",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = NoteySurfaces.TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Notes you add appear here.",
+                        style = MonoMetadataStyle
+                    )
                 }
             }
-        } else {
-            LazyColumn(
+        } else if (isGridView) {
+            LazyVerticalStaggeredGrid(
+                columns = StaggeredGridCells.Fixed(2),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalItemSpacing = 8.dp,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
-                items(filteredNotes, key = { it.id }) { note ->
+                if (pinnedNotes.isNotEmpty()) {
+                    item(span = StaggeredGridItemSpan.FullLine) {
+                        Text(
+                            text = "PINNED",
+                            style = MonoMetadataStyle,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF38BDF8),
+                            modifier = Modifier.padding(start = 6.dp, top = 6.dp, bottom = 2.dp)
+                        )
+                    }
+                    items(pinnedNotes, key = { it.id }) { note ->
+                        NoteCard(
+                            note = note,
+                            onClick = { onOpenNote(note.id) },
+                            onTogglePin = {
+                                noteStore.togglePin(note.id)
+                                notes = noteStore.getActiveNotes()
+                            },
+                            onToggleFavorite = {
+                                noteStore.toggleFavorite(note.id)
+                                notes = noteStore.getActiveNotes()
+                            },
+                            onToggleTask = { taskIdx ->
+                                noteStore.toggleTask(note.id, taskIdx)
+                                notes = noteStore.getActiveNotes()
+                            },
+                            onQuickEdit = { onQuickEdit(note) }
+                        )
+                    }
+                    if (otherNotes.isNotEmpty()) {
+                        item(span = StaggeredGridItemSpan.FullLine) {
+                            Text(
+                                text = "OTHERS",
+                                style = MonoMetadataStyle,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(start = 6.dp, top = 14.dp, bottom = 2.dp)
+                            )
+                        }
+                    }
+                }
+
+                items(otherNotes, key = { it.id }) { note ->
                     NoteCard(
                         note = note,
                         onClick = { onOpenNote(note.id) },
@@ -914,19 +1395,174 @@ fun NotesListView(
                         onToggleFavorite = {
                             noteStore.toggleFavorite(note.id)
                             notes = noteStore.getActiveNotes()
-                        }
+                        },
+                        onToggleTask = { taskIdx ->
+                            noteStore.toggleTask(note.id, taskIdx)
+                            notes = noteStore.getActiveNotes()
+                        },
+                        onQuickEdit = { onQuickEdit(note) }
                     )
                 }
-                item { Spacer(modifier = Modifier.height(72.dp)) }
+
+                item(span = StaggeredGridItemSpan.FullLine) {
+                    Spacer(modifier = Modifier.height(72.dp))
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (pinnedNotes.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "PINNED",
+                            style = MonoMetadataStyle,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF38BDF8),
+                            modifier = Modifier.padding(start = 6.dp, top = 6.dp, bottom = 2.dp)
+                        )
+                    }
+                    items(pinnedNotes, key = { it.id }) { note ->
+                        NoteCard(
+                            note = note,
+                            onClick = { onOpenNote(note.id) },
+                            onTogglePin = {
+                                noteStore.togglePin(note.id)
+                                notes = noteStore.getActiveNotes()
+                            },
+                            onToggleFavorite = {
+                                noteStore.toggleFavorite(note.id)
+                                notes = noteStore.getActiveNotes()
+                            },
+                            onToggleTask = { taskIdx ->
+                                noteStore.toggleTask(note.id, taskIdx)
+                                notes = noteStore.getActiveNotes()
+                            },
+                            onQuickEdit = { onQuickEdit(note) }
+                        )
+                    }
+                    if (otherNotes.isNotEmpty()) {
+                        item {
+                            Text(
+                                text = "OTHERS",
+                                style = MonoMetadataStyle,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(start = 6.dp, top = 14.dp, bottom = 2.dp)
+                            )
+                        }
+                    }
+                }
+
+                items(otherNotes, key = { it.id }) { note ->
+                    NoteCard(
+                        note = note,
+                        onClick = { onOpenNote(note.id) },
+                        onTogglePin = {
+                            noteStore.togglePin(note.id)
+                            notes = noteStore.getActiveNotes()
+                        },
+                        onToggleFavorite = {
+                            noteStore.toggleFavorite(note.id)
+                            notes = noteStore.getActiveNotes()
+                        },
+                        onToggleTask = { taskIdx ->
+                            noteStore.toggleTask(note.id, taskIdx)
+                            notes = noteStore.getActiveNotes()
+                        },
+                        onQuickEdit = { onQuickEdit(note) }
+                    )
+                }
+
+                item {
+                    Spacer(modifier = Modifier.height(72.dp))
+                }
             }
         }
+    }
+
+    if (showAccountDialog) {
+        AlertDialog(
+            onDismissRequest = { showAccountDialog = false },
+            containerColor = NoteySurfaces.Surface2,
+            title = {
+                Text("Notey Account", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = NoteySurfaces.TextPrimary)
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    val avatarBmp = remember(userProfile?.avatarUri) {
+                        if (userProfile?.avatarUri != null) {
+                            try { BitmapFactory.decodeFile(userProfile.avatarUri) } catch (_: Exception) { null }
+                        } else null
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(NoteySurfaces.Surface3)
+                            .border(1.dp, NoteySurfaces.HairlineBorder, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (avatarBmp != null) {
+                            Image(
+                                bitmap = avatarBmp.asImageBitmap(),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Text(
+                                text = UserProfileValidator.getInitials(userProfile?.displayName ?: "User"),
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF38BDF8)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = userProfile?.displayName ?: "Notey User",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = NoteySurfaces.TextPrimary
+                    )
+                    Text(
+                        text = "Built by Yathin",
+                        style = MonoMetadataStyle
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedButton(
+                        onClick = {
+                            showAccountDialog = false
+                            onOpenSettings()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Manage Account & Preferences")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAccountDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
     }
 
     if (showFolderDialog) {
         var folderNameInput by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showFolderDialog = false },
-            title = { Text("Create Folder") },
+            containerColor = NoteySurfaces.Surface2,
+            title = { Text("Filter by Folder", color = NoteySurfaces.TextPrimary) },
             text = {
                 OutlinedTextField(
                     value = folderNameInput,
@@ -946,7 +1582,7 @@ fun NotesListView(
                         }
                     }
                 ) {
-                    Text("Filter Folder")
+                    Text("Filter")
                 }
             },
             dismissButton = {
@@ -963,114 +1599,776 @@ fun NoteCard(
     note: Note,
     onClick: () -> Unit,
     onTogglePin: (() -> Unit)? = null,
-    onToggleFavorite: (() -> Unit)? = null
+    onToggleFavorite: (() -> Unit)? = null,
+    onToggleTask: ((Int) -> Unit)? = null,
+    onQuickEdit: ((Note) -> Unit)? = null,
+    modifier: Modifier = Modifier
 ) {
-    val accentColor = getNoteColor(note.colorIndex)
+    val isDark = isSystemInDarkTheme()
+    val accentColor = GoogleKeepPalette.getAccentColor(note.colorIndex)
+    val cardBg = if (isDark) NoteySurfaces.Surface1 else Color.White
+    val textColor = if (isDark) NoteySurfaces.TextPrimary else Color(0xFF1E293B)
+    val subTextColor = if (isDark) NoteySurfaces.TextSecondary else Color(0xFF64748B)
     val dateStr = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(note.updatedAt))
 
     Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, accentColor.copy(alpha = 0.45f)),
-        modifier = Modifier
+        shape = RoundedCornerShape(12.dp),
+        color = cardBg,
+        tonalElevation = 0.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
+        modifier = modifier
             .fillMaxWidth()
+            .drawBehind {
+                // 3.5dp Dynamic Accent Left Border
+                drawRect(
+                    color = accentColor,
+                    topLeft = Offset.Zero,
+                    size = Size(3.5.dp.toPx(), size.height)
+                )
+            }
             .clickable(onClick = onClick)
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(
+            modifier = Modifier.padding(start = 14.dp, end = 12.dp, top = 12.dp, bottom = 12.dp)
+        ) {
+            // Header Row: Title, Quick Edit Pencil, and Pin
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                if (note.title.isNotBlank()) {
+                    Text(
+                        text = note.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = textColor,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (onQuickEdit != null) {
+                        IconButton(
+                            onClick = { onQuickEdit(note) },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                NoteyIcons.Pencil,
+                                contentDescription = "Quick edit",
+                                tint = subTextColor,
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                    }
+
+                    if (onTogglePin != null) {
+                        IconButton(
+                            onClick = onTogglePin,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                if (note.isPinned) NoteyIcons.Pin else NoteyIcons.PinOff,
+                                contentDescription = if (note.isPinned) "Unpin" else "Pin",
+                                tint = if (note.isPinned) accentColor else subTextColor.copy(alpha = 0.5f),
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Body or Tasks
+            val tasks = remember(note.body) { note.parseTasks() }
+            if (note.isChecklist || (tasks.isNotEmpty() && note.body.contains("- ["))) {
+                Spacer(modifier = Modifier.height(6.dp))
+                val visibleTasks = tasks.take(4)
+                visibleTasks.forEachIndexed { idx, task ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Checkbox(
+                            checked = task.isDone,
+                            onCheckedChange = { onToggleTask?.invoke(idx) },
+                            modifier = Modifier.size(18.dp),
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = accentColor,
+                                uncheckedColor = subTextColor.copy(alpha = 0.5f),
+                                checkmarkColor = getInvertedTextColor(accentColor)
+                            )
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = task.text,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (task.isDone) subTextColor.copy(alpha = 0.5f) else textColor,
+                            textDecoration = if (task.isDone) TextDecoration.LineThrough else null,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                if (tasks.size > 4) {
+                    Text(
+                        text = "+ ${tasks.size - 4} more items",
+                        style = MonoMetadataStyle,
+                        modifier = Modifier.padding(start = 24.dp, top = 2.dp)
+                    )
+                }
+            } else if (note.body.isNotBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = note.body,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = subTextColor,
+                    maxLines = 6,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // Image Preview if any image attachment
+            val firstImage = note.attachments.firstOrNull { it.type == AttachmentType.IMAGE }
+            if (firstImage != null) {
+                val bmp = remember(firstImage.filePath) {
+                    try { BitmapFactory.decodeFile(firstImage.filePath) } catch (_: Exception) { null }
+                }
+                if (bmp != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Image(
+                        bitmap = bmp.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(100.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+            }
+
+            // Inline File Chips with Paperclip Vector Icon
+            if (note.attachments.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    note.attachments.take(3).forEach { att ->
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = NoteySurfaces.Surface3,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    NoteyIcons.Paperclip,
+                                    contentDescription = null,
+                                    tint = accentColor,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = att.displayName,
+                                    style = MonoMetadataStyle,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.widthIn(max = 110.dp)
+                                )
+                            }
+                        }
+                    }
+                    if (note.attachments.size > 3) {
+                        Text(
+                            text = "+${note.attachments.size - 3}",
+                            style = MonoMetadataStyle
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Footer Row: Inverted Accent Pill for Folder/Tags, Date in Mono, and Favorite Star
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(accentColor)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = note.title.ifBlank { "Untitled Note" },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    if (note.folder.isNotBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = accentColor
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    NoteyIcons.Folder,
+                                    contentDescription = null,
+                                    tint = getInvertedTextColor(accentColor),
+                                    modifier = Modifier.size(10.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = note.folder,
+                                    style = MonoMetadataStyle,
+                                    fontWeight = FontWeight.Bold,
+                                    color = getInvertedTextColor(accentColor)
+                                )
+                            }
+                        }
+                    } else if (note.tags.isNotEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = NoteySurfaces.Surface4
+                        ) {
+                            Text(
+                                text = "#${note.tags.first()}",
+                                style = MonoMetadataStyle,
+                                color = NoteySurfaces.TextSecondary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = dateStr,
+                            style = MonoMetadataStyle
+                        )
+                    }
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (onToggleFavorite != null) {
-                        IconButton(
-                            onClick = onToggleFavorite,
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Text(if (note.isFavorite) "★" else "☆", fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                    if (onTogglePin != null) {
-                        IconButton(
-                            onClick = onTogglePin,
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Text(if (note.isPinned) "📌" else "📍", fontSize = 14.sp)
-                        }
+                if (onToggleFavorite != null) {
+                    IconButton(
+                        onClick = onToggleFavorite,
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Star,
+                            contentDescription = "Favorite",
+                            tint = if (note.isFavorite) Color(0xFFF59E0B) else subTextColor.copy(alpha = 0.35f),
+                            modifier = Modifier.size(16.dp)
+                        )
                     }
                 }
             }
+        }
+    }
+}
 
-            if (note.body.isNotBlank()) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = note.body,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CardQuickEditBottomSheet(
+    note: Note,
+    noteStore: NoteStore,
+    onDismiss: () -> Unit,
+    onSaved: (Note) -> Unit
+) {
+    var editTitle by remember { mutableStateOf(note.title) }
+    var editBody by remember { mutableStateOf(note.body) }
+    var editTags by remember { mutableStateOf(note.tags.joinToString(", ")) }
+    var editColorIndex by remember { mutableStateOf(note.colorIndex) }
+    var editAttachments by remember { mutableStateOf(note.attachments) }
+
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val copied = noteStore.copyUriToInternalStorage(uri)
+            if (copied != null) {
+                editAttachments = editAttachments + copied
             }
+        }
+    }
 
-            Spacer(modifier = Modifier.height(8.dp))
+    val currentAccent = GoogleKeepPalette.getAccentColor(editColorIndex)
+    val invertedBadgeColor = getInvertedTextColor(currentAccent)
 
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = NoteySurfaces.Surface2,
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 10.dp)
+                    .width(36.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(NoteySurfaces.Surface4)
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .imePadding()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = dateStr,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    text = "Quick Edit & Files",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = NoteySurfaces.TextPrimary
                 )
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = NoteySurfaces.TextSecondary)
+                }
+            }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (note.folder.isNotBlank()) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant
+            // Title field
+            OutlinedTextField(
+                value = editTitle,
+                onValueChange = { editTitle = it },
+                label = { Text("Title") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = currentAccent,
+                    unfocusedBorderColor = NoteySurfaces.HairlineBorder,
+                    focusedTextColor = NoteySurfaces.TextPrimary,
+                    unfocusedTextColor = NoteySurfaces.TextPrimary
+                )
+            )
+
+            // Content / Excerpt field
+            OutlinedTextField(
+                value = editBody,
+                onValueChange = { editBody = it },
+                label = { Text("Content / Excerpt") },
+                minLines = 3,
+                maxLines = 6,
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = currentAccent,
+                    unfocusedBorderColor = NoteySurfaces.HairlineBorder,
+                    focusedTextColor = NoteySurfaces.TextPrimary,
+                    unfocusedTextColor = NoteySurfaces.TextPrimary
+                )
+            )
+
+            // Tags field
+            OutlinedTextField(
+                value = editTags,
+                onValueChange = { editTags = it },
+                label = { Text("Tags (comma-separated)") },
+                placeholder = { Text("work, project, roadmap") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = currentAccent,
+                    unfocusedBorderColor = NoteySurfaces.HairlineBorder,
+                    focusedTextColor = NoteySurfaces.TextPrimary,
+                    unfocusedTextColor = NoteySurfaces.TextPrimary
+                )
+            )
+
+            // Dynamic Accent Selector with Live Inverted Badge Preview
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "ACCENT COLOR",
+                        style = MonoMetadataStyle,
+                        color = NoteySurfaces.TextSecondary
+                    )
+
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = currentAccent
+                    ) {
+                        Text(
+                            text = if (calculateRelativeLuminance(currentAccent) > 0.42f) "Dark Contrast" else "Light Contrast",
+                            style = MonoMetadataStyle,
+                            fontWeight = FontWeight.Bold,
+                            color = invertedBadgeColor,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    GoogleKeepPalette.colors.forEach { keepColor ->
+                        val isSelected = editColorIndex == keepColor.id
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(keepColor.accentColor)
+                                .border(
+                                    width = if (isSelected) 2.5.dp else 1.dp,
+                                    color = if (isSelected) Color.White else NoteySurfaces.HairlineBorder,
+                                    shape = CircleShape
+                                )
+                                .clickable { editColorIndex = keepColor.id },
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = "📁 ${note.folder}",
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
+                            if (isSelected) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = getInvertedTextColor(keepColor.accentColor),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
-                    if (note.attachments.isNotEmpty()) {
+                }
+            }
+
+            // File Attachments Management
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "ATTACHMENTS (${editAttachments.size})",
+                        style = MonoMetadataStyle,
+                        color = NoteySurfaces.TextSecondary
+                    )
+
+                    TextButton(
+                        onClick = { filePickerLauncher.launch(arrayOf("*/*")) },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Icon(NoteyIcons.Paperclip, contentDescription = null, modifier = Modifier.size(16.dp), tint = currentAccent)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("+ Add File", color = currentAccent, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+
+                if (editAttachments.isEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = NoteySurfaces.Surface1,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "No files attached",
+                            style = MonoMetadataStyle,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+                } else {
+                    editAttachments.forEach { att ->
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer
+                            shape = RoundedCornerShape(8.dp),
+                            color = NoteySurfaces.Surface1,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    NoteyIcons.Paperclip,
+                                    contentDescription = null,
+                                    tint = currentAccent,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = att.displayName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Medium,
+                                        color = NoteySurfaces.TextPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    val sizeKb = (att.sizeBytes / 1024).coerceAtLeast(1)
+                                    Text(
+                                        text = "$sizeKb KB • ${att.mimeType}",
+                                        style = MonoMetadataStyle
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { editAttachments = editAttachments.filter { it.id != att.id } },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = "Delete attachment", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Action Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Cancel")
+                }
+                Button(
+                    onClick = {
+                        val parsedTags = editTags.split(",")
+                            .map { it.trim() }
+                            .filter { it.isNotBlank() }
+                        val updated = note.copy(
+                            title = editTitle,
+                            body = editBody,
+                            tags = parsedTags,
+                            colorIndex = editColorIndex,
+                            attachments = editAttachments,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                        noteStore.save(updated)
+                        onSaved(updated)
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = currentAccent, contentColor = invertedBadgeColor)
+                ) {
+                    Text("Save Changes", fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+fun CommandPaletteDialog(
+    noteStore: NoteStore,
+    canvasStore: CanvasStore,
+    onDismiss: () -> Unit,
+    onOpenNote: (Long) -> Unit,
+    onOpenCanvas: (String) -> Unit,
+    onAction: (String) -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+    val allNotes = remember { noteStore.loadAll() }
+    val allCanvases = remember { canvasStore.loadAll() }
+
+    val matchedNotes = remember(query, allNotes) {
+        if (query.isBlank()) emptyList()
+        else allNotes.filter {
+            it.title.contains(query, ignoreCase = true) || it.body.contains(query, ignoreCase = true)
+        }.take(5)
+    }
+
+    val matchedCanvases = remember(query, allCanvases) {
+        if (query.isBlank()) emptyList()
+        else allCanvases.filter {
+            it.name.contains(query, ignoreCase = true) || it.nodes.any { n -> n.title.contains(query, ignoreCase = true) }
+        }.take(5)
+    }
+
+    val quickActions = remember(query) {
+        val actions = listOf(
+            Triple("New Note", "Create a blank markdown document", "note"),
+            Triple("New Checklist", "Create a structured task checklist", "checklist"),
+            Triple("New Workflow Canvas", "Open visual infinite workspace", "canvas"),
+            Triple("Open Asset Vault", "Browse files, documents & media", "vault"),
+            Triple("Preferences", "Adjust theme and animations", "settings")
+        )
+        if (query.isBlank()) actions
+        else actions.filter { it.first.contains(query, ignoreCase = true) || it.second.contains(query, ignoreCase = true) }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = NoteySurfaces.Surface2,
+            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .fillMaxHeight(0.72f)
+                .imePadding()
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Command palette search input
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Search, contentDescription = null, tint = NoteySurfaces.TextSecondary, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
+                    BasicTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        textStyle = TextStyle(color = NoteySurfaces.TextPrimary, fontSize = 16.sp),
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        cursorBrush = SolidColor(Color(0xFF38BDF8)),
+                        decorationBox = { inner ->
+                            if (query.isBlank()) {
+                                Text("Type a command, note or workflow...", color = NoteySurfaces.TextMuted, fontSize = 15.sp)
+                            }
+                            inner()
+                        }
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = NoteySurfaces.Surface4,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder)
+                    ) {
+                        Text(
+                            text = "⌘K",
+                            style = MonoMetadataStyle,
+                            color = NoteySurfaces.TextSecondary,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = NoteySurfaces.HairlineBorder)
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (matchedNotes.isNotEmpty()) {
+                        item {
                             Text(
-                                text = "📎 ${note.attachments.size}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                text = "NOTES",
+                                style = MonoMetadataStyle,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                             )
+                        }
+                        items(matchedNotes) { note ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color.Transparent,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onOpenNote(note.id) }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(NoteyIcons.Document, contentDescription = null, tint = GoogleKeepPalette.getAccentColor(note.colorIndex), modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(if (note.title.isNotBlank()) note.title else "Untitled Note", style = MaterialTheme.typography.bodyMedium, color = NoteySurfaces.TextPrimary, maxLines = 1)
+                                        Text(note.body.take(60), style = MonoMetadataStyle, maxLines = 1)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (matchedCanvases.isNotEmpty()) {
+                        item {
+                            Text(
+                                text = "WORKFLOWS & CANVASES",
+                                style = MonoMetadataStyle,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
+                        items(matchedCanvases) { canvas ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color.Transparent,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onOpenCanvas(canvas.id) }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(NoteyIcons.Workflow, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(canvas.name, style = MaterialTheme.typography.bodyMedium, color = NoteySurfaces.TextPrimary, modifier = Modifier.weight(1f))
+                                    Text("${canvas.nodes.size} nodes", style = MonoMetadataStyle)
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        Text(
+                            text = "COMMANDS & ACTIONS",
+                            style = MonoMetadataStyle,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
+
+                    items(quickActions) { (actionTitle, subtitle, actionKey) ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.Transparent,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onAction(actionKey) }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val icon = when (actionKey) {
+                                    "note" -> NoteyIcons.Document
+                                    "checklist" -> NoteyIcons.TaskCheck
+                                    "canvas" -> NoteyIcons.Workflow
+                                    "vault" -> NoteyIcons.Vault
+                                    else -> Icons.Default.Settings
+                                }
+                                Icon(icon, contentDescription = null, tint = NoteySurfaces.TextSecondary, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(actionTitle, style = MaterialTheme.typography.bodyMedium, color = NoteySurfaces.TextPrimary)
+                                    Text(subtitle, style = MonoMetadataStyle)
+                                }
+                            }
                         }
                     }
                 }
@@ -1096,61 +2394,101 @@ fun NoteReaderView(
     }
 
     val currentNote = note!!
+    val accentColor = GoogleKeepPalette.getAccentColor(currentNote.colorIndex)
     val wordCount = remember(currentNote.body) {
         currentNote.body.split(Regex("\\s+")).count { it.isNotBlank() }
     }
+    val charCount = currentNote.body.length
+    val readTime = (wordCount / 200).coerceAtLeast(1)
     val updatedDate = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(currentNote.updatedAt))
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Note Reader", style = MaterialTheme.typography.titleMedium) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_SUBJECT, currentNote.title)
-                                putExtra(Intent.EXTRA_TEXT, "${currentNote.title}\n\n${currentNote.body}")
+            Column {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .background(Brush.horizontalGradient(listOf(accentColor, accentColor.copy(alpha = 0.2f))))
+                )
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = if (currentNote.isChecklist) "Task Checklist" else "Document",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = NoteySurfaces.TextPrimary
+                        )
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = NoteySurfaces.Surface0,
+                        navigationIconContentColor = NoteySurfaces.TextPrimary,
+                        actionIconContentColor = NoteySurfaces.TextPrimary
+                    ),
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = {
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_SUBJECT, currentNote.title)
+                                    putExtra(Intent.EXTRA_TEXT, "${currentNote.title}\n\n${currentNote.body}")
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Share note"))
                             }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share note"))
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = "Share")
                         }
-                    ) {
-                        Icon(Icons.Default.Share, contentDescription = "Share")
-                    }
-                    IconButton(
-                        onClick = {
-                            noteStore.togglePin(currentNote.id)
-                            note = currentNote.copy(isPinned = !currentNote.isPinned)
+                        IconButton(
+                            onClick = {
+                                noteStore.togglePin(currentNote.id)
+                                note = currentNote.copy(isPinned = !currentNote.isPinned)
+                            }
+                        ) {
+                            Icon(
+                                if (currentNote.isPinned) NoteyIcons.Pin else NoteyIcons.PinOff,
+                                contentDescription = "Pin",
+                                tint = if (currentNote.isPinned) accentColor else NoteySurfaces.TextSecondary
+                            )
                         }
-                    ) {
-                        Text(if (currentNote.isPinned) "📌" else "📍", fontSize = 18.sp)
-                    }
-                    IconButton(
-                        onClick = {
-                            noteStore.permanentlyDelete(currentNote.id)
-                            onBack()
+                        IconButton(
+                            onClick = {
+                                noteStore.toggleFavorite(currentNote.id)
+                                note = currentNote.copy(isFavorite = !currentNote.isFavorite)
+                            }
+                        ) {
+                            Icon(
+                                Icons.Default.Star,
+                                contentDescription = "Favorite",
+                                tint = if (currentNote.isFavorite) Color(0xFFF59E0B) else NoteySurfaces.TextMuted.copy(alpha = 0.35f)
+                            )
                         }
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                        IconButton(
+                            onClick = {
+                                noteStore.permanentlyDelete(currentNote.id)
+                                onBack()
+                            }
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                        }
                     }
-                }
-            )
+                )
+            }
         },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = onEdit,
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White
+                containerColor = accentColor,
+                contentColor = getInvertedTextColor(accentColor),
+                shape = RoundedCornerShape(14.dp)
             ) {
-                Icon(Icons.Default.Edit, contentDescription = "Edit Note")
+                Icon(NoteyIcons.Pencil, contentDescription = "Edit Note")
             }
-        }
+        },
+        containerColor = NoteySurfaces.Surface0
     ) { padding ->
         Column(
             modifier = Modifier
@@ -1161,71 +2499,148 @@ fun NoteReaderView(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // Title
-            Text(
-                text = currentNote.title.ifBlank { "Untitled Note" },
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold
-            )
+            if (currentNote.title.isNotBlank()) {
+                Text(
+                    text = currentNote.title,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = NoteySurfaces.TextPrimary
+                )
+            }
 
-            // Metadata info bar
+            // Monospace Metadata Ribbon
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "$wordCount words • Updated $updatedDate",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = "$wordCount words • $charCount chars • $readTime min read",
+                    style = MonoMetadataStyle
                 )
                 if (currentNote.folder.isNotBlank()) {
-                    Text(
-                        text = "📁 ${currentNote.folder}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = accentColor
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(NoteyIcons.Folder, contentDescription = null, tint = getInvertedTextColor(accentColor), modifier = Modifier.size(10.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = currentNote.folder,
+                                style = MonoMetadataStyle,
+                                fontWeight = FontWeight.Bold,
+                                color = getInvertedTextColor(accentColor)
+                            )
+                        }
+                    }
                 }
             }
 
-            HorizontalDivider()
-
-            // Note Body
             Text(
-                text = currentNote.body,
-                style = MaterialTheme.typography.bodyLarge,
-                lineHeight = 24.sp
+                text = "Updated $updatedDate",
+                style = MonoMetadataStyle
             )
+
+            HorizontalDivider(color = NoteySurfaces.HairlineBorder)
+
+            // Tasks or Note Body
+            val tasks = remember(currentNote.body) { currentNote.parseTasks() }
+            if (currentNote.isChecklist || (tasks.isNotEmpty() && currentNote.body.contains("- ["))) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    tasks.forEachIndexed { idx, task ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    noteStore.toggleTask(currentNote.id, idx)
+                                    note = noteStore.loadAll().firstOrNull { it.id == currentNote.id }
+                                }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Checkbox(
+                                checked = task.isDone,
+                                onCheckedChange = {
+                                    noteStore.toggleTask(currentNote.id, idx)
+                                    note = noteStore.loadAll().firstOrNull { it.id == currentNote.id }
+                                },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = accentColor,
+                                    uncheckedColor = NoteySurfaces.TextSecondary.copy(alpha = 0.5f),
+                                    checkmarkColor = getInvertedTextColor(accentColor)
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = task.text,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = if (task.isDone) NoteySurfaces.TextMuted else NoteySurfaces.TextPrimary,
+                                textDecoration = if (task.isDone) TextDecoration.LineThrough else null
+                            )
+                        }
+                    }
+                }
+            } else {
+                Text(
+                    text = currentNote.body,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = NoteySurfaces.TextPrimary,
+                    lineHeight = 24.sp
+                )
+            }
 
             // Media Attachments
             if (currentNote.attachments.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "Attachments (${currentNote.attachments.size})",
-                    style = MaterialTheme.typography.titleMedium,
+                    text = "ATTACHMENTS (${currentNote.attachments.size})",
+                    style = MonoMetadataStyle,
                     fontWeight = FontWeight.Bold
                 )
 
                 currentNote.attachments.forEach { att ->
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(10.dp),
+                        color = NoteySurfaces.Surface1,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(if (att.type == AttachmentType.IMAGE) "🖼️" else if (att.type == AttachmentType.VIDEO) "🎬" else "📄", fontSize = 22.sp)
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(att.displayName, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("${att.sizeBytes / 1024} KB", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            if (att.type == AttachmentType.IMAGE) {
+                                val bmp = remember(att.filePath) {
+                                    try { BitmapFactory.decodeFile(att.filePath) } catch (_: Exception) { null }
+                                }
+                                if (bmp != null) {
+                                    Image(
+                                        bitmap = bmp.asImageBitmap(),
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(180.dp)
+                                            .clip(RoundedCornerShape(8.dp)),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                }
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(NoteyIcons.Paperclip, contentDescription = null, tint = accentColor, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(att.displayName, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = NoteySurfaces.TextPrimary)
+                                    Text("${(att.sizeBytes / 1024).coerceAtLeast(1)} KB", style = MonoMetadataStyle)
+                                }
                             }
                         }
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(60.dp))
         }
     }
 }
@@ -1236,6 +2651,7 @@ fun NoteEditorView(
     noteId: Long?,
     noteStore: NoteStore,
     settings: AppSettings,
+    initialIsChecklist: Boolean = false,
     onBack: () -> Unit,
     onSaved: (Long) -> Unit
 ) {
@@ -1244,11 +2660,32 @@ fun NoteEditorView(
     }
 
     var title by remember { mutableStateOf(existingNote?.title ?: "") }
-    var body by remember { mutableStateOf(existingNote?.body ?: "") }
     var folder by remember { mutableStateOf(existingNote?.folder ?: "") }
     var selectedColorIdx by remember { mutableStateOf(existingNote?.colorIndex ?: settings.defaultNoteColor) }
+    var selectedBgTheme by remember { mutableStateOf(existingNote?.bgTheme ?: "none") }
     var attachments by remember { mutableStateOf(existingNote?.attachments ?: emptyList()) }
-    var isChecklist by remember { mutableStateOf(existingNote?.isChecklist ?: false) }
+    var isChecklist by remember { mutableStateOf(existingNote?.isChecklist ?: initialIsChecklist) }
+    var isPinned by remember { mutableStateOf(existingNote?.isPinned ?: false) }
+    var isFavorite by remember { mutableStateOf(existingNote?.isFavorite ?: false) }
+
+    var showThemeSheet by remember { mutableStateOf(false) }
+    var showFolderDialog by remember { mutableStateOf(false) }
+    var showCompletedTasks by remember { mutableStateOf(true) }
+
+    var tasks by remember {
+        val initial = existingNote?.parseTasks() ?: emptyList()
+        mutableStateOf(
+            if (initial.isNotEmpty()) initial
+            else if (initialIsChecklist) listOf(TaskItem(text = "", isDone = false))
+            else emptyList()
+        )
+    }
+
+    var bodyTextFieldValue by remember {
+        mutableStateOf(TextFieldValue(existingNote?.body ?: ""))
+    }
+
+    val accentColor = GoogleKeepPalette.getAccentColor(selectedColorIdx)
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -1261,17 +2698,59 @@ fun NoteEditorView(
         }
     }
 
+    fun insertMarkdown(prefix: String, suffix: String = "") {
+        val currentText = bodyTextFieldValue.text
+        val selection = bodyTextFieldValue.selection
+        val selectedText = currentText.substring(selection.min, selection.max)
+        val newText = currentText.substring(0, selection.min) + prefix + selectedText + suffix + currentText.substring(selection.max)
+        val newCursor = if (selectedText.isEmpty()) selection.min + prefix.length else selection.min + prefix.length + selectedText.length + suffix.length
+        bodyTextFieldValue = TextFieldValue(
+            text = newText,
+            selection = TextRange(newCursor)
+        )
+    }
+
+    fun toggleChecklistMode() {
+        if (isChecklist) {
+            bodyTextFieldValue = TextFieldValue(tasks.joinToString("\n") { it.text })
+            isChecklist = false
+        } else {
+            val parsed = bodyTextFieldValue.text.lines().mapNotNull { line ->
+                val trimmed = line.trim()
+                if (trimmed.isEmpty()) null
+                else if (trimmed.startsWith("- [x] ", ignoreCase = true)) {
+                    TaskItem(text = trimmed.removePrefix("- [x] ").removePrefix("- [X] "), isDone = true)
+                } else if (trimmed.startsWith("- [ ] ")) {
+                    TaskItem(text = trimmed.removePrefix("- [ ] "), isDone = false)
+                } else {
+                    TaskItem(text = trimmed, isDone = false)
+                }
+            }
+            tasks = if (parsed.isNotEmpty()) parsed else listOf(TaskItem(text = "", isDone = false))
+            isChecklist = true
+        }
+    }
+
     fun saveCurrentNote(): Long {
+        val finalBody = if (isChecklist) {
+            tasks.filter { it.text.isNotBlank() }.joinToString("\n") { task ->
+                val prefix = if (task.isDone) "- [x] " else "- [ ] "
+                "$prefix${task.text}"
+            }
+        } else {
+            bodyTextFieldValue.text
+        }
         val targetId = existingNote?.id ?: System.currentTimeMillis()
         val noteToSave = Note(
             id = targetId,
             title = title,
-            body = body,
-            isPinned = existingNote?.isPinned ?: false,
-            isFavorite = existingNote?.isFavorite ?: false,
+            body = finalBody,
+            isPinned = isPinned,
+            isFavorite = isFavorite,
             folder = folder,
             isChecklist = isChecklist,
             colorIndex = selectedColorIdx,
+            bgTheme = selectedBgTheme,
             attachments = attachments,
             updatedAt = System.currentTimeMillis()
         )
@@ -1281,123 +2760,377 @@ fun NoteEditorView(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(if (noteId == null) "New Note" else "Edit Note") },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        if (title.isNotBlank() || body.isNotBlank()) {
-                            val id = saveCurrentNote()
-                            onSaved(id)
-                        } else {
-                            onBack()
+            Column {
+                // 2px Luxury Gradient Accent Top Edge
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .background(Brush.horizontalGradient(listOf(accentColor, accentColor.copy(alpha = 0.2f))))
+                )
+                TopAppBar(
+                    title = { },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = NoteySurfaces.Surface0,
+                        navigationIconContentColor = NoteySurfaces.TextPrimary,
+                        actionIconContentColor = NoteySurfaces.TextPrimary
+                    ),
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            val hasContent = title.isNotBlank() || (if (isChecklist) tasks.any { it.text.isNotBlank() } else bodyTextFieldValue.text.isNotBlank())
+                            if (hasContent) {
+                                val id = saveCurrentNote()
+                                onSaved(id)
+                            } else {
+                                onBack()
+                            }
+                        }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
-                    }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    },
+                    actions = {
+                        IconButton(onClick = { isPinned = !isPinned }) {
+                            Icon(
+                                if (isPinned) NoteyIcons.Pin else NoteyIcons.PinOff,
+                                contentDescription = "Pin",
+                                tint = if (isPinned) accentColor else NoteySurfaces.TextSecondary
+                            )
+                        }
+                        IconButton(onClick = { isFavorite = !isFavorite }) {
+                            Icon(
+                                Icons.Default.Star,
+                                contentDescription = "Favorite",
+                                tint = if (isFavorite) Color(0xFFF59E0B) else NoteySurfaces.TextMuted.copy(alpha = 0.35f)
+                            )
+                        }
+                        IconButton(onClick = { showFolderDialog = true }) {
+                            Icon(NoteyIcons.Folder, contentDescription = "Folder", tint = NoteySurfaces.TextSecondary)
+                        }
+                        IconButton(
+                            onClick = {
+                                val id = saveCurrentNote()
+                                onSaved(id)
+                            }
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = "Save", tint = accentColor)
+                        }
                     }
-                },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            val id = saveCurrentNote()
-                            onSaved(id)
-                        }
+                )
+            }
+        },
+        bottomBar = {
+            // Floating Markdown Accessory Dock pinned right above the keyboard
+            Surface(
+                shape = RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp),
+                color = NoteySurfaces.Surface2,
+                border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .imePadding()
+                    .navigationBarsPadding()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Check, contentDescription = "Done")
+                        IconButton(onClick = { insertMarkdown("**", "**") }, modifier = Modifier.size(34.dp)) {
+                            Icon(NoteyIcons.Bold, contentDescription = "Bold", tint = NoteySurfaces.TextPrimary, modifier = Modifier.size(16.dp))
+                        }
+                        IconButton(onClick = { insertMarkdown("*", "*") }, modifier = Modifier.size(34.dp)) {
+                            Icon(NoteyIcons.Italic, contentDescription = "Italic", tint = NoteySurfaces.TextPrimary, modifier = Modifier.size(16.dp))
+                        }
+                        IconButton(onClick = { insertMarkdown("\n## ") }, modifier = Modifier.size(34.dp)) {
+                            Icon(NoteyIcons.Heading, contentDescription = "Heading", tint = NoteySurfaces.TextPrimary, modifier = Modifier.size(16.dp))
+                        }
+                        IconButton(onClick = { insertMarkdown("\n- ") }, modifier = Modifier.size(34.dp)) {
+                            Icon(NoteyIcons.BulletList, contentDescription = "Bullet List", tint = NoteySurfaces.TextPrimary, modifier = Modifier.size(16.dp))
+                        }
+                        IconButton(onClick = { toggleChecklistMode() }, modifier = Modifier.size(34.dp)) {
+                            Icon(NoteyIcons.TaskCheck, contentDescription = "Toggle Checklist", tint = if (isChecklist) accentColor else NoteySurfaces.TextPrimary, modifier = Modifier.size(16.dp))
+                        }
+                        IconButton(onClick = { insertMarkdown("\n```\n", "\n```\n") }, modifier = Modifier.size(34.dp)) {
+                            Icon(NoteyIcons.Code, contentDescription = "Code Block", tint = NoteySurfaces.TextPrimary, modifier = Modifier.size(16.dp))
+                        }
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { showThemeSheet = true }, modifier = Modifier.size(34.dp)) {
+                            Icon(NoteyIcons.Palette, contentDescription = "Theme", tint = accentColor, modifier = Modifier.size(16.dp))
+                        }
+                        IconButton(onClick = { filePickerLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.size(34.dp)) {
+                            Icon(NoteyIcons.Paperclip, contentDescription = "Attach File", tint = NoteySurfaces.TextSecondary, modifier = Modifier.size(16.dp))
+                        }
                     }
                 }
-            )
-        }
+            }
+        },
+        containerColor = NoteySurfaces.Surface0
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(horizontal = 18.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Formatting Toolbar
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                FilledTonalButton(onClick = { body += "**bold**" }) { Text("B", fontWeight = FontWeight.Bold) }
-                FilledTonalButton(onClick = { body += "*italic*" }) { Text("I", fontWeight = FontWeight.SemiBold) }
-                FilledTonalButton(onClick = { body += "# Heading\n" }) { Text("H1") }
-                FilledTonalButton(onClick = { body += "\n- [ ] Task" }) { Text("☑️ Task") }
-                FilledTonalButton(onClick = { body += "\n```\n// code\n```\n" }) { Text("Code") }
-                FilledTonalButton(onClick = { filePickerLauncher.launch(arrayOf("*/*")) }) { Text("📎 Attach") }
-            }
+            // Borderless Title
+            BasicTextField(
+                value = title,
+                onValueChange = { title = it },
+                textStyle = TextStyle(
+                    color = NoteySurfaces.TextPrimary,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold
+                ),
+                cursorBrush = SolidColor(accentColor),
+                modifier = Modifier.fillMaxWidth(),
+                decorationBox = { innerTextField ->
+                    if (title.isBlank()) {
+                        Text(
+                            text = "Title",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = NoteySurfaces.TextMuted
+                        )
+                    }
+                    innerTextField()
+                }
+            )
 
-            // Accent Tint Selector
+            // Monospace Metadata Ribbon
+            val wordCount = remember(bodyTextFieldValue.text, tasks, isChecklist) {
+                val fullText = if (isChecklist) tasks.joinToString(" ") { it.text } else bodyTextFieldValue.text
+                fullText.split(Regex("\\s+")).count { it.isNotBlank() }
+            }
+            val charCount = if (isChecklist) tasks.sumOf { it.text.length } else bodyTextFieldValue.text.length
+            val readTime = (wordCount / 200).coerceAtLeast(1)
+
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                NoteAccentColors.take(6).forEachIndexed { idx, color ->
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .background(color)
-                            .clickable { selectedColorIdx = idx }
-                            .border(
-                                width = if (selectedColorIdx == idx) 3.dp else 1.dp,
-                                color = if (selectedColorIdx == idx) MaterialTheme.colorScheme.onSurface else Color.Transparent,
-                                shape = CircleShape
-                            )
-                    )
+                Text(
+                    text = "$wordCount words • $charCount chars • $readTime min read",
+                    style = MonoMetadataStyle
+                )
+                if (folder.isNotBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = accentColor
+                    ) {
+                        Text(
+                            text = folder,
+                            style = MonoMetadataStyle,
+                            fontWeight = FontWeight.Bold,
+                            color = getInvertedTextColor(accentColor),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
                 }
             }
 
-            // Title
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                label = { Text("Title") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
+            HorizontalDivider(color = NoteySurfaces.HairlineBorder)
 
-            // Folder
-            OutlinedTextField(
-                value = folder,
-                onValueChange = { folder = it },
-                label = { Text("Folder / Collection (optional)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
+            // Checklist Mode vs Text Mode
+            if (isChecklist) {
+                val activeTasks = tasks.mapIndexed { idx, t -> Pair(idx, t) }.filter { !it.second.isDone }
+                val completedTasks = tasks.mapIndexed { idx, t -> Pair(idx, t) }.filter { it.second.isDone }
 
-            // Body
-            OutlinedTextField(
-                value = body,
-                onValueChange = { body = it },
-                label = { Text("Note Content (Markdown supported)...") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 220.dp)
-            )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    activeTasks.forEach { (taskIdx, task) ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Checkbox(
+                                checked = task.isDone,
+                                onCheckedChange = { checked ->
+                                    tasks = tasks.toMutableList().also { list ->
+                                        list[taskIdx] = task.copy(isDone = checked)
+                                    }
+                                },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = accentColor,
+                                    uncheckedColor = NoteySurfaces.TextSecondary.copy(alpha = 0.5f),
+                                    checkmarkColor = getInvertedTextColor(accentColor)
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            BasicTextField(
+                                value = task.text,
+                                onValueChange = { newText ->
+                                    tasks = tasks.toMutableList().also { list ->
+                                        list[taskIdx] = task.copy(text = newText)
+                                    }
+                                },
+                                textStyle = TextStyle(color = NoteySurfaces.TextPrimary, fontSize = 16.sp),
+                                cursorBrush = SolidColor(accentColor),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                                keyboardActions = KeyboardActions(onNext = {
+                                    tasks = tasks.toMutableList().also { list ->
+                                        list.add(taskIdx + 1, TaskItem(text = "", isDone = false))
+                                    }
+                                }),
+                                modifier = Modifier.weight(1f),
+                                decorationBox = { inner ->
+                                    if (task.text.isBlank()) {
+                                        Text("List item", color = NoteySurfaces.TextMuted, fontSize = 16.sp)
+                                    }
+                                    inner()
+                                }
+                            )
+                            IconButton(
+                                onClick = {
+                                    tasks = tasks.toMutableList().also { it.removeAt(taskIdx) }
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Remove", tint = NoteySurfaces.TextSecondary, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
 
-            // Attachments
+                    // Add new item row
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                tasks = tasks + TaskItem(text = "", isDone = false)
+                            }
+                            .padding(vertical = 8.dp, horizontal = 4.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, tint = accentColor, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("Add checklist item", color = NoteySurfaces.TextSecondary, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+
+                // Completed Items Section
+                if (completedTasks.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    HorizontalDivider(color = NoteySurfaces.HairlineBorder)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showCompletedTasks = !showCompletedTasks }
+                            .padding(vertical = 8.dp)
+                    ) {
+                        Icon(
+                            if (showCompletedTasks) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = NoteySurfaces.TextSecondary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "${completedTasks.size} Completed ${if (completedTasks.size == 1) "item" else "items"}",
+                            style = MonoMetadataStyle,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    if (showCompletedTasks) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            completedTasks.forEach { (taskIdx, task) ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Checkbox(
+                                        checked = task.isDone,
+                                        onCheckedChange = { checked ->
+                                            tasks = tasks.toMutableList().also { list ->
+                                                list[taskIdx] = task.copy(isDone = checked)
+                                            }
+                                        },
+                                        colors = CheckboxDefaults.colors(
+                                            checkedColor = accentColor,
+                                            uncheckedColor = NoteySurfaces.TextSecondary.copy(alpha = 0.5f),
+                                            checkmarkColor = getInvertedTextColor(accentColor)
+                                        )
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = task.text,
+                                        style = TextStyle(
+                                            color = NoteySurfaces.TextMuted,
+                                            fontSize = 16.sp,
+                                            textDecoration = TextDecoration.LineThrough
+                                        ),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = {
+                                            tasks = tasks.toMutableList().also { it.removeAt(taskIdx) }
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(Icons.Default.Close, contentDescription = "Remove", tint = NoteySurfaces.TextSecondary, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Plain Text Mode (Borderless auto-expanding)
+                BasicTextField(
+                    value = bodyTextFieldValue,
+                    onValueChange = { bodyTextFieldValue = it },
+                    textStyle = TextStyle(
+                        color = NoteySurfaces.TextPrimary,
+                        fontSize = 16.sp,
+                        lineHeight = 24.sp
+                    ),
+                    cursorBrush = SolidColor(accentColor),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 280.dp),
+                    decorationBox = { innerTextField ->
+                        if (bodyTextFieldValue.text.isBlank()) {
+                            Text(
+                                text = "Start writing with markdown...",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = NoteySurfaces.TextMuted
+                            )
+                        }
+                        innerTextField()
+                    }
+                )
+            }
+
+            // Attachments List in Editor
             if (attachments.isNotEmpty()) {
-                Text("Attachments (${attachments.size})", fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(10.dp))
+                Text("ATTACHMENTS (${attachments.size})", style = MonoMetadataStyle, fontWeight = FontWeight.Bold)
                 attachments.forEach { att ->
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(8.dp),
+                        color = NoteySurfaces.Surface1,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
                             modifier = Modifier.padding(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(if (att.type == AttachmentType.IMAGE) "🖼️" else if (att.type == AttachmentType.VIDEO) "🎬" else "📄", fontSize = 20.sp)
+                            Icon(NoteyIcons.Paperclip, contentDescription = null, tint = accentColor, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(10.dp))
-                            Text(att.displayName, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(att.displayName, modifier = Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis, color = NoteySurfaces.TextPrimary)
+                                val sizeKb = (att.sizeBytes / 1024).coerceAtLeast(1)
+                                Text("$sizeKb KB • ${att.mimeType}", style = MonoMetadataStyle)
+                            }
                             IconButton(onClick = { attachments = attachments.filter { it.id != att.id } }) {
                                 Icon(Icons.Default.Close, contentDescription = "Remove", tint = MaterialTheme.colorScheme.error)
                             }
@@ -1405,7 +3138,147 @@ fun NoteEditorView(
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(60.dp))
         }
+    }
+
+    // Theme & Accent Modal Bottom Sheet
+    if (showThemeSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showThemeSheet = false },
+            sheetState = rememberModalBottomSheetState(),
+            containerColor = NoteySurfaces.Surface2
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .imePadding()
+                    .navigationBarsPadding()
+                    .padding(bottom = 28.dp, start = 18.dp, end = 18.dp)
+            ) {
+                Text(
+                    text = "ACCENT COLOR",
+                    style = MonoMetadataStyle,
+                    fontWeight = FontWeight.Bold,
+                    color = NoteySurfaces.TextSecondary,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    GoogleKeepPalette.colors.forEach { keepColor ->
+                        val isSelected = selectedColorIdx == keepColor.id
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(keepColor.accentColor)
+                                .border(
+                                    width = if (isSelected) 2.5.dp else 1.dp,
+                                    color = if (isSelected) Color.White else NoteySurfaces.HairlineBorder,
+                                    shape = CircleShape
+                                )
+                                .clickable { selectedColorIdx = keepColor.id },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelected) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = "Selected",
+                                    tint = getInvertedTextColor(keepColor.accentColor),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "TEXTURE OVERLAY",
+                    style = MonoMetadataStyle,
+                    fontWeight = FontWeight.Bold,
+                    color = NoteySurfaces.TextSecondary,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    listOf("none", "grid", "dots", "ruled").forEach { themeId ->
+                        val isSelected = selectedBgTheme == themeId
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSelected) NoteySurfaces.Surface3 else NoteySurfaces.Surface1,
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isSelected) accentColor else NoteySurfaces.HairlineBorder
+                            ),
+                            modifier = Modifier
+                                .width(88.dp)
+                                .height(52.dp)
+                                .clickable { selectedBgTheme = themeId }
+                        ) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = themeId.replaceFirstChar { it.uppercase() },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) accentColor else NoteySurfaces.TextSecondary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showFolderDialog) {
+        var folderInput by remember { mutableStateOf(folder) }
+        AlertDialog(
+            onDismissRequest = { showFolderDialog = false },
+            containerColor = NoteySurfaces.Surface2,
+            title = { Text("Set Folder / Collection", color = NoteySurfaces.TextPrimary) },
+            text = {
+                OutlinedTextField(
+                    value = folderInput,
+                    onValueChange = { folderInput = it },
+                    label = { Text("Folder Name (e.g. Work, Ideas)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        folder = folderInput.trim()
+                        showFolderDialog = false
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFolderDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
@@ -1442,7 +3315,7 @@ fun GlobalSearchScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(NoteySurfaces.Surface0)
     ) {
         TopAppBar(
             title = {
@@ -1451,9 +3324,19 @@ fun GlobalSearchScreen(
                     onValueChange = { query = it },
                     placeholder = { Text("Search workspace...") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF38BDF8),
+                        unfocusedBorderColor = NoteySurfaces.HairlineBorder,
+                        focusedTextColor = NoteySurfaces.TextPrimary,
+                        unfocusedTextColor = NoteySurfaces.TextPrimary
+                    )
                 )
             },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = NoteySurfaces.Surface0,
+                navigationIconContentColor = NoteySurfaces.TextPrimary
+            ),
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -1469,15 +3352,27 @@ fun GlobalSearchScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             listOf("All", "Notes", "Canvases").forEach { s ->
-                FilterChip(
-                    selected = scope == s,
-                    onClick = { scope = s },
-                    label = { Text(s) }
-                )
+                val isSelected = scope == s
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isSelected) NoteySurfaces.Surface3 else NoteySurfaces.Surface1,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (isSelected) Color(0xFF38BDF8) else NoteySurfaces.HairlineBorder
+                    ),
+                    modifier = Modifier.clickable { scope = s }
+                ) {
+                    Text(
+                        text = s,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isSelected) Color(0xFF38BDF8) else NoteySurfaces.TextSecondary,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
             }
         }
 
-        HorizontalDivider()
+        HorizontalDivider(color = NoteySurfaces.HairlineBorder)
 
         // Results
         LazyColumn(
@@ -1495,15 +3390,21 @@ fun GlobalSearchScreen(
             if (scope in listOf("All", "Canvases")) {
                 items(matchingCanvases) { doc ->
                     Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(12.dp),
+                        color = NoteySurfaces.Surface1,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onOpenCanvas(doc.id) }
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
-                            Text("🔀 ${doc.name}", fontWeight = FontWeight.Bold)
-                            Text("${doc.nodes.size} nodes • ${doc.type.name.lowercase()}", style = MaterialTheme.typography.bodySmall)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(NoteyIcons.Workflow, contentDescription = null, tint = Color(0xFFA78BFA), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(doc.name, fontWeight = FontWeight.Bold, color = NoteySurfaces.TextPrimary)
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("${doc.nodes.size} nodes • ${doc.type.name.lowercase()}", style = MonoMetadataStyle)
                         }
                     }
                 }

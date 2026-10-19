@@ -20,6 +20,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -28,7 +32,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -60,116 +67,123 @@ fun SettingsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(NoteySurfaces.Surface0)
     ) {
         // Top App Bar
-        TopAppBar(
-            title = {
+        Surface(
+            color = NoteySurfaces.Surface1,
+            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (currentSubpage != SettingsSubpage.MAIN) {
+                    IconButton(onClick = { currentSubpage = SettingsSubpage.MAIN }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = NoteySurfaces.TextPrimary)
+                    }
+                } else if (onBack != null) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = NoteySurfaces.TextPrimary)
+                    }
+                }
+                Spacer(modifier = Modifier.width(4.dp))
                 Text(
                     text = when (currentSubpage) {
                         SettingsSubpage.MAIN -> "Settings"
                         SettingsSubpage.PROFILE -> "User Profile"
                         SettingsSubpage.APPEARANCE -> "Appearance"
-                        SettingsSubpage.ANIMATION -> "Animation & Interaction"
+                        SettingsSubpage.ANIMATION -> "Animation & Physics"
                         SettingsSubpage.NOTES -> "Notes & Editing"
-                        SettingsSubpage.CANVAS -> "Canvas Preferences"
+                        SettingsSubpage.CANVAS -> "Canvas & Workflows"
                         SettingsSubpage.STORAGE -> "Files & Storage"
                         SettingsSubpage.PERFORMANCE -> "Performance"
                         SettingsSubpage.DATA -> "Data & Privacy"
                         SettingsSubpage.ABOUT -> "About Notey"
                     },
                     style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = NoteySurfaces.TextPrimary
                 )
-            },
-            navigationIcon = {
-                if (currentSubpage != SettingsSubpage.MAIN) {
-                    IconButton(onClick = { currentSubpage = SettingsSubpage.MAIN }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to Settings")
-                    }
-                } else if (onBack != null) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surface
-            )
-        )
+            }
+        }
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-        Box(modifier = Modifier.fillMaxSize()) {
+        // Subpage Content
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
             when (currentSubpage) {
-                SettingsSubpage.MAIN -> {
-                    SettingsMainView(
-                        profile = currentProfile,
-                        onNavigate = { currentSubpage = it }
-                    )
-                }
-                SettingsSubpage.PROFILE -> {
-                    ProfileSettingsView(
-                        currentProfile = currentProfile,
-                        onSaveProfile = { newProfile ->
-                            userProfileStore?.saveProfile(newProfile)
-                            onProfileChanged?.invoke(newProfile)
-                            currentSubpage = SettingsSubpage.MAIN
-                            Toast.makeText(context, "Profile updated", Toast.LENGTH_SHORT).show()
-                        },
-                        onCancel = { currentSubpage = SettingsSubpage.MAIN }
-                    )
-                }
-                SettingsSubpage.APPEARANCE -> {
-                    AppearanceSettingsView(settings = settings, onUpdate = ::update)
-                }
-                SettingsSubpage.ANIMATION -> {
-                    AnimationSettingsView(settings = settings, onUpdate = ::update)
-                }
-                SettingsSubpage.NOTES -> {
-                    NotesSettingsView(settings = settings, onUpdate = ::update)
-                }
-                SettingsSubpage.CANVAS -> {
-                    CanvasSettingsView(settings = settings, onUpdate = ::update)
-                }
-                SettingsSubpage.STORAGE -> {
-                    StorageSettingsView(context = context, noteStore = noteStore)
-                }
-                SettingsSubpage.PERFORMANCE -> {
-                    PerformanceSettingsView(settings = settings)
-                }
-                SettingsSubpage.DATA -> {
-                    DataPrivacySettingsView(
-                        noteStore = noteStore,
-                        onRequestDeleteAll = { showConfirmDeleteAll = true }
-                    )
-                }
-                SettingsSubpage.ABOUT -> {
-                    AboutSettingsView(context = context)
-                }
+                SettingsSubpage.MAIN -> MainSettingsListView(
+                    currentProfile = currentProfile,
+                    settings = settings,
+                    onNavigate = { currentSubpage = it }
+                )
+                SettingsSubpage.PROFILE -> ProfileSettingsView(
+                    currentProfile = currentProfile,
+                    onSaveProfile = {
+                        userProfileStore?.saveProfile(it)
+                        onProfileChanged?.invoke(it)
+                        currentSubpage = SettingsSubpage.MAIN
+                    },
+                    onCancel = { currentSubpage = SettingsSubpage.MAIN }
+                )
+                SettingsSubpage.APPEARANCE -> AppearanceSettingsView(
+                    settings = settings,
+                    onUpdate = ::update
+                )
+                SettingsSubpage.ANIMATION -> AnimationSettingsView(
+                    settings = settings,
+                    onUpdate = ::update
+                )
+                SettingsSubpage.NOTES -> NotesSettingsView(
+                    settings = settings,
+                    onUpdate = ::update
+                )
+                SettingsSubpage.CANVAS -> CanvasSettingsView(
+                    settings = settings,
+                    onUpdate = ::update
+                )
+                SettingsSubpage.STORAGE -> StorageSettingsView(
+                    noteStore = noteStore,
+                    context = context
+                )
+                SettingsSubpage.PERFORMANCE -> PerformanceSettingsView(settings = settings)
+                SettingsSubpage.DATA -> DataPrivacySettingsView(
+                    noteStore = noteStore,
+                    onRequestDeleteAll = { showConfirmDeleteAll = true }
+                )
+                SettingsSubpage.ABOUT -> AboutSettingsView(context = context)
             }
         }
     }
 
+    // Confirmation dialog for deleting all data
     if (showConfirmDeleteAll) {
         AlertDialog(
             onDismissRequest = { showConfirmDeleteAll = false },
-            title = { Text("Delete All Data?", color = MaterialTheme.colorScheme.error) },
-            text = { Text("This will permanently remove all notes, attachments, and canvases from this device. This action cannot be undone.") },
+            title = { Text("Delete All Data?", fontWeight = FontWeight.Bold) },
+            text = { Text("This will permanently erase all notes, tasks, attached files, and visual canvases. This action cannot be reversed.") },
             confirmButton = {
                 Button(
                     onClick = {
-                        noteStore.clearAllData()
                         showConfirmDeleteAll = false
+                        noteStore.clearTrash()
+                        val all = noteStore.loadAll()
+                        all.forEach { noteStore.permanentlyDelete(it.id) }
                         Toast.makeText(context, "All data deleted", Toast.LENGTH_SHORT).show()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Delete Everything")
+                    Text("Delete Permanently")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showConfirmDeleteAll = false }) {
+                OutlinedButton(onClick = { showConfirmDeleteAll = false }) {
                     Text("Cancel")
                 }
             }
@@ -178,8 +192,9 @@ fun SettingsScreen(
 }
 
 @Composable
-fun SettingsMainView(
-    profile: UserProfile?,
+fun MainSettingsListView(
+    currentProfile: UserProfile?,
+    settings: AppSettings,
     onNavigate: (SettingsSubpage) -> Unit
 ) {
     Column(
@@ -191,9 +206,9 @@ fun SettingsMainView(
     ) {
         // User Profile Banner Card
         Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+            shape = RoundedCornerShape(8.dp),
+            color = NoteySurfaces.Surface1,
+            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { onNavigate(SettingsSubpage.PROFILE) }
@@ -201,122 +216,162 @@ fun SettingsMainView(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Profile Avatar Badge
-                val avatarBitmap = remember(profile?.avatarUri) {
-                    if (profile?.avatarUri != null) {
-                        try { BitmapFactory.decodeFile(profile.avatarUri) } catch (_: Exception) { null }
-                    } else null
-                }
-
-                if (avatarBitmap != null) {
-                    Image(
-                        bitmap = avatarBitmap.asImageBitmap(),
-                        contentDescription = "Avatar",
-                        modifier = Modifier
-                            .size(52.dp)
-                            .clip(CircleShape)
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(52.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = UserProfileValidator.getInitials(profile?.displayName ?: "User"),
-                            style = MaterialTheme.typography.titleMedium,
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .border(1.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = UserProfileValidator.getInitials(currentProfile?.displayName ?: "Guest"),
+                        style = TextStyle(
+                            fontFamily = FontFamily.SansSerif,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            fontSize = 16.sp,
+                            color = MaterialTheme.colorScheme.primary
                         )
-                    }
+                    )
                 }
 
-                Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(14.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = profile?.displayName?.ifBlank { "Personal Profile" } ?: "Personal Profile",
+                        text = currentProfile?.displayName ?: "Set Up Profile",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = NoteySurfaces.TextPrimary
                     )
                     Text(
-                        text = "Customize your display name & avatar",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "Local-First Workspace • Tap to edit",
+                        style = TextStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            color = NoteySurfaces.TextMuted
+                        )
                     )
                 }
-
-                Text(
-                    text = "›",
-                    fontSize = 24.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    fontWeight = FontWeight.Light
-                )
             }
         }
 
         Spacer(modifier = Modifier.height(4.dp))
 
         SettingsCategoryCard(
-            icon = "🎨",
+            icon = NoteyIcons.Palette,
             title = "Appearance",
-            subtitle = "Theme mode, accent colors, typography & UI style",
+            subtitle = "AMOLED Black, Zinc Grey, 6 dynamic accents",
             onClick = { onNavigate(SettingsSubpage.APPEARANCE) }
         )
 
         SettingsCategoryCard(
-            icon = "⚡",
-            title = "Animation & Interaction",
-            subtitle = "Motion speed, reduce motion, haptic feedback",
+            icon = Icons.Default.PlayArrow,
+            title = "Animation & Physics",
+            subtitle = "Instant, Fluid 240ms, Smooth Spring",
             onClick = { onNavigate(SettingsSubpage.ANIMATION) }
         )
 
         SettingsCategoryCard(
-            icon = "📝",
+            icon = NoteyIcons.Document,
             title = "Notes & Editing",
             subtitle = "Default styling, sorting, and auto-save options",
             onClick = { onNavigate(SettingsSubpage.NOTES) }
         )
 
         SettingsCategoryCard(
-            icon = "🔀",
+            icon = NoteyIcons.Workflow,
             title = "Canvas & Workflows",
-            subtitle = "Grid visibility, background pattern, connectors",
+            subtitle = "Grid visibility, dot spacing, connectors",
             onClick = { onNavigate(SettingsSubpage.CANVAS) }
         )
 
         SettingsCategoryCard(
-            icon = "📁",
+            icon = NoteyIcons.Vault,
             title = "Files & Storage",
             subtitle = "Storage stats, cache usage, backup & restore",
             onClick = { onNavigate(SettingsSubpage.STORAGE) }
         )
 
         SettingsCategoryCard(
-            icon = "🚀",
+            icon = Icons.Default.Settings,
             title = "Performance",
-            subtitle = "Resource consumption, motion & rendering options",
+            subtitle = "Local-first sandboxing, hardware acceleration",
             onClick = { onNavigate(SettingsSubpage.PERFORMANCE) }
         )
 
         SettingsCategoryCard(
-            icon = "🛡️",
+            icon = Icons.Default.Lock,
             title = "Data & Privacy",
             subtitle = "Local storage management, trash, data deletion",
             onClick = { onNavigate(SettingsSubpage.DATA) }
         )
 
         SettingsCategoryCard(
-            icon = "ℹ️",
+            icon = Icons.Default.Info,
             title = "About Notey",
-            subtitle = "Version, licenses, GitHub source code, attribution",
+            subtitle = "Built by Yathin • Source code & attribution",
             onClick = { onNavigate(SettingsSubpage.ABOUT) }
         )
+    }
+}
+
+@Composable
+fun SettingsCategoryCard(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = NoteySurfaces.Surface1,
+        border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(NoteySurfaces.Surface2)
+                    .border(1.dp, NoteySurfaces.HairlineBorder, RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = NoteySurfaces.TextPrimary
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NoteySurfaces.TextSecondary
+                )
+            }
+        }
     }
 }
 
@@ -342,163 +397,66 @@ fun ProfileSettingsView(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+            .padding(16.dp)
+            .imePadding(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Avatar Preview
-        val avatarBitmap = remember(avatarUri) {
-            if (avatarUri != null) {
-                try { BitmapFactory.decodeFile(avatarUri) } catch (_: Exception) { null }
-            } else null
-        }
-
-        Box(
-            modifier = Modifier
-                .size(90.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center
-        ) {
-            if (avatarBitmap != null) {
-                Image(
-                    bitmap = avatarBitmap.asImageBitmap(),
-                    contentDescription = "Avatar",
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Text(
-                    text = UserProfileValidator.getInitials(nameInput.ifBlank { "User" }),
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(
-                onClick = { photoPickerLauncher.launch("image/*") }
-            ) {
-                Text("📷 Choose Photo")
-            }
-            if (avatarUri != null) {
-                TextButton(onClick = { avatarUri = null }) {
-                    Text("Remove Photo")
-                }
-            }
-        }
+        Text("Profile Setup", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = NoteySurfaces.TextPrimary)
 
         OutlinedTextField(
             value = nameInput,
             onValueChange = {
                 nameInput = it
-                errorMessage = UserProfileValidator.validateDisplayName(it)
+                errorMessage = null
             },
             label = { Text("Display Name") },
-            placeholder = { Text("Enter your preferred name") },
             isError = errorMessage != null,
-            supportingText = {
-                if (errorMessage != null) {
-                    Text(errorMessage!!, color = MaterialTheme.colorScheme.error)
-                } else {
-                    Text("${nameInput.trim().length} / 40 characters")
-                }
-            },
+            supportingText = errorMessage?.let { { Text(it, color = MaterialTheme.colorScheme.error) } },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
 
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            OutlinedButton(
-                onClick = onCancel,
-                modifier = Modifier.weight(1f)
-            ) {
-                Text("Cancel")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = { photoPickerLauncher.launch("image/*") }) {
+                Icon(NoteyIcons.Camera, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Choose Photo")
             }
-
-            Button(
-                onClick = {
-                    val validation = UserProfileValidator.validateDisplayName(nameInput)
-                    if (validation == null) {
-                        val updated = (currentProfile ?: UserProfile(displayName = nameInput.trim())).copy(
-                            displayName = nameInput.trim(),
-                            avatarUri = avatarUri,
-                            updatedAt = System.currentTimeMillis()
-                        )
-                        onSaveProfile(updated)
-                    } else {
-                        errorMessage = validation
-                    }
-                },
-                enabled = nameInput.trim().isNotEmpty() && errorMessage == null,
-                modifier = Modifier.weight(1f)
-            ) {
-                Text("Save Changes")
+            if (avatarUri != null) {
+                TextButton(onClick = { avatarUri = null }) {
+                    Text("Clear")
+                }
             }
         }
-    }
-}
 
-@Composable
-fun SettingsCategoryCard(
-    icon: String,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) {
+                Text("Cancel")
+            }
+            Button(
+                onClick = {
+                    val err = UserProfileValidator.validateDisplayName(nameInput)
+                    if (err != null) {
+                        errorMessage = err
+                    } else {
+                        onSaveProfile(
+                            currentProfile?.copy(
+                                displayName = nameInput.trim(),
+                                avatarUri = avatarUri,
+                                updatedAt = System.currentTimeMillis()
+                            ) ?: UserProfile(
+                                displayName = nameInput.trim(),
+                                avatarUri = avatarUri
+                            )
+                        )
+                    }
+                },
+                modifier = Modifier.weight(1f)
             ) {
-                Text(text = icon, fontSize = 22.sp)
+                Text("Save Profile")
             }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Text(
-                text = "›",
-                fontSize = 24.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                fontWeight = FontWeight.Light
-            )
         }
     }
 }
@@ -508,6 +466,9 @@ fun AppearanceSettingsView(
     settings: AppSettings,
     onUpdate: (AppSettings) -> Unit
 ) {
+    val currentAccent = AccentColors.presets.getOrElse(settings.accentIndex) { AccentColors.presets[0] }
+    val invertedTextColor = getInvertedTextColor(currentAccent.primary)
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -515,22 +476,25 @@ fun AppearanceSettingsView(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Theme Mode", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Text("Foundation Surface Mode", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = NoteySurfaces.TextPrimary)
 
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             listOf(
-                Triple(ThemeMode.LIGHT, "Light", "☀️"),
-                Triple(ThemeMode.DARK, "Dark", "🌙"),
-                Triple(ThemeMode.SYSTEM, "System", "⚙️")
+                Triple(ThemeMode.AMOLED_BLACK, "AMOLED Black", NoteyIcons.OledBlack),
+                Triple(ThemeMode.ZINC_GREY, "Zinc Grey", NoteyIcons.Moon),
+                Triple(ThemeMode.MONET_DYNAMIC, "Monet Dynamic", NoteyIcons.Sun)
             ).forEach { (mode, label, icon) ->
                 val isSel = settings.themeMode == mode
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (isSel) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                    border = if (isSel) null else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isSel) NoteySurfaces.Surface3 else NoteySurfaces.Surface1,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (isSel) MaterialTheme.colorScheme.primary else NoteySurfaces.HairlineBorder
+                    ),
                     modifier = Modifier
                         .weight(1f)
                         .clickable { onUpdate(settings.copy(themeMode = mode)) }
@@ -539,19 +503,24 @@ fun AppearanceSettingsView(
                         modifier = Modifier.padding(12.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(icon, fontSize = 20.sp)
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Icon(icon, contentDescription = null, tint = if (isSel) MaterialTheme.colorScheme.primary else NoteySurfaces.TextSecondary, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             text = label,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                            style = TextStyle(
+                                fontFamily = FontFamily.SansSerif,
+                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 11.sp,
+                                color = if (isSel) NoteySurfaces.TextPrimary else NoteySurfaces.TextSecondary
+                            ),
+                            maxLines = 1
                         )
                     }
                 }
             }
         }
 
-        Text("Accent Color Palette", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Text("Dynamic Accent Palette (60%-75% Clamped Luminance)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = NoteySurfaces.TextPrimary)
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -561,13 +530,13 @@ fun AppearanceSettingsView(
                 val isSel = settings.accentIndex == index
                 Box(
                     modifier = Modifier
-                        .size(38.dp)
+                        .size(42.dp)
                         .clip(CircleShape)
                         .background(color)
                         .clickable { onUpdate(settings.copy(accentIndex = index)) }
                         .border(
                             width = if (isSel) 3.dp else 1.dp,
-                            color = if (isSel) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                            color = if (isSel) Color.White else Color(0x33FFFFFF),
                             shape = CircleShape
                         ),
                     contentAlignment = Alignment.Center
@@ -576,7 +545,7 @@ fun AppearanceSettingsView(
                         Icon(
                             Icons.Default.Check,
                             contentDescription = "Selected",
-                            tint = Color.White,
+                            tint = getInvertedTextColor(color),
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -584,60 +553,101 @@ fun AppearanceSettingsView(
             }
         }
 
-        Text("UI Shape Style", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Text("Active Palette Swatch: ${currentAccent.name}", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = currentAccent.primary))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            listOf(
-                Pair(UIStyle.ROUNDED, "Rounded (20dp)"),
-                Pair(UIStyle.COMPACT, "Compact (12dp)")
-            ).forEach { (style, label) ->
-                val isSel = settings.uiStyle == style
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (isSel) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                    border = if (isSel) null else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable { onUpdate(settings.copy(uiStyle = style)) }
-                ) {
-                    Text(
-                        text = label,
-                        modifier = Modifier.padding(14.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
-                    )
-                }
-            }
-        }
-
-        // Live Preview Card
-        Text("Theme Preview", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        // Live Elevation & Inversion Preview Card
+        Text("Elevation & Dynamic Inversion System Preview", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = NoteySurfaces.TextPrimary)
         Surface(
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            tonalElevation = 2.dp,
+            shape = RoundedCornerShape(8.dp),
+            color = NoteySurfaces.Surface1,
+            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "✦ Preview: Notey Liquid Glass Card",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
+            Row(modifier = Modifier.fillMaxWidth()) {
+                // 3.5dp Accent Left Border
+                Box(
+                    modifier = Modifier
+                        .width(3.5.dp)
+                        .fillMaxHeight()
+                        .background(currentAccent.primary)
                 )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "This preview responds instantaneously to theme, accent palette, and shape changes.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = {}) { Text("Primary") }
-                    FilledTonalButton(onClick = {}) { Text("Tonal") }
+
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Surface 1 (Zinc 950)",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = NoteySurfaces.TextPrimary
+                        )
+
+                        // Dynamic Inversion Badge: WCAG 2.1 relative luminance
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = currentAccent.primary
+                        ) {
+                            Text(
+                                text = "WCAG 2.1 INVERTED",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp,
+                                    color = invertedTextColor
+                                )
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "1px Hairline Border: rgba(255, 255, 255, 0.08). The badge text color dynamically inverts to Deep Obsidian (#000000) or Crisp White (#FFFFFF) based on relative luminance Y > 0.42.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NoteySurfaces.TextSecondary
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = NoteySurfaces.Surface2,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder)
+                        ) {
+                            Text(
+                                text = "Surface 2",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = NoteySurfaces.TextMuted)
+                            )
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = NoteySurfaces.Surface3,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder)
+                        ) {
+                            Text(
+                                text = "Surface 3",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = NoteySurfaces.TextMuted)
+                            )
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = NoteySurfaces.Surface4,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder)
+                        ) {
+                            Text(
+                                text = "Surface 4",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = NoteySurfaces.TextMuted)
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -662,8 +672,8 @@ fun AnimationSettingsView(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Enable Animations", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text("Fluid transitions across screens and cards", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Enable Motion Physics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = NoteySurfaces.TextPrimary)
+                Text("Physics-based spring curves across screens and canvas elements", style = MaterialTheme.typography.bodySmall, color = NoteySurfaces.TextSecondary)
             }
             Switch(
                 checked = settings.animationsEnabled,
@@ -677,8 +687,8 @@ fun AnimationSettingsView(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Reduce Motion", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text("Minimizes motion effects for comfort", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Reduce Motion", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = NoteySurfaces.TextPrimary)
+                Text("Instantaneous state changes without transforms", style = MaterialTheme.typography.bodySmall, color = NoteySurfaces.TextSecondary)
             }
             Switch(
                 checked = settings.reduceMotion,
@@ -686,48 +696,41 @@ fun AnimationSettingsView(
             )
         }
 
-        Text("Animation Speed", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Text("Animation Physics Timing", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = NoteySurfaces.TextPrimary)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             listOf(
-                Pair(AnimationSpeed.SLOW, "Slow"),
-                Pair(AnimationSpeed.NORMAL, "Normal"),
-                Pair(AnimationSpeed.FAST, "Fast")
-            ).forEach { (speed, label) ->
+                AnimationSpeed.INSTANT,
+                AnimationSpeed.FLUID,
+                AnimationSpeed.SPRING
+            ).forEach { speed ->
                 val isSel = settings.animationSpeed == speed
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (isSel) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                    border = if (isSel) null else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isSel) NoteySurfaces.Surface3 else NoteySurfaces.Surface1,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (isSel) MaterialTheme.colorScheme.primary else NoteySurfaces.HairlineBorder
+                    ),
                     modifier = Modifier
                         .weight(1f)
                         .clickable { onUpdate(settings.copy(animationSpeed = speed)) }
                 ) {
                     Text(
-                        text = label,
-                        modifier = Modifier.padding(14.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                        text = speed.label,
+                        modifier = Modifier.padding(12.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        style = TextStyle(
+                            fontFamily = FontFamily.SansSerif,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSel) MaterialTheme.colorScheme.primary else NoteySurfaces.TextSecondary
+                        )
                     )
                 }
             }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Haptic Feedback", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text("Subtle vibration on button taps and node connections", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Switch(
-                checked = settings.hapticFeedback,
-                onCheckedChange = { onUpdate(settings.copy(hapticFeedback = it)) }
-            )
         }
     }
 }
@@ -744,62 +747,18 @@ fun NotesSettingsView(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Default Sorting", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            listOf(
-                Pair("updated", "Modified"),
-                Pair("created", "Created"),
-                Pair("title", "Title")
-            ).forEach { (key, label) ->
-                val isSel = settings.noteSortBy == key
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (isSel) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                    border = if (isSel) null else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable { onUpdate(settings.copy(noteSortBy = key)) }
-                ) {
-                    Text(
-                        text = label,
-                        modifier = Modifier.padding(14.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
-                    )
-                }
-            }
-        }
-
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Auto Save", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text("Automatically save edits as you type", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Continuous Auto-Save", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = NoteySurfaces.TextPrimary)
+                Text("Debounced local persistence to sandbox database", style = MaterialTheme.typography.bodySmall, color = NoteySurfaces.TextSecondary)
             }
             Switch(
                 checked = settings.autoSave,
                 onCheckedChange = { onUpdate(settings.copy(autoSave = it)) }
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Confirm Delete", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text("Ask before deleting notes permanently", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Switch(
-                checked = settings.confirmDestructive,
-                onCheckedChange = { onUpdate(settings.copy(confirmDestructive = it)) }
             )
         }
     }
@@ -823,8 +782,8 @@ fun CanvasSettingsView(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Show Canvas Grid", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text("Display subtle alignment dots across workspace", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Radial Dot Grid", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = NoteySurfaces.TextPrimary)
+                Text("24dp isometric dot grid (#27272A) on OLED canvas", style = MaterialTheme.typography.bodySmall, color = NoteySurfaces.TextSecondary)
             }
             Switch(
                 checked = settings.canvasGrid,
@@ -838,8 +797,8 @@ fun CanvasSettingsView(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Snap to Grid", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text("Automatically snap nodes during drag", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Snap to Coordinates", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = NoteySurfaces.TextPrimary)
+                Text("Snaps nodes to 20dp grid matrix on drag release", style = MaterialTheme.typography.bodySmall, color = NoteySurfaces.TextSecondary)
             }
             Switch(
                 checked = settings.canvasSnapToGrid,
@@ -850,13 +809,11 @@ fun CanvasSettingsView(
 }
 
 @Composable
-fun StorageSettingsView(
-    context: Context,
-    noteStore: NoteStore
-) {
-    val attachmentsDir = File(context.filesDir, "attachments")
-    val totalSize = attachmentsDir.listFiles()?.sumOf { it.length() } ?: 0L
-    val sizeMb = "%.2f MB".format(totalSize / (1024.0 * 1024.0))
+fun StorageSettingsView(noteStore: NoteStore, context: Context) {
+    val notes = remember { noteStore.loadAll() }
+    val totalFiles = notes.sumOf { it.attachments.size }
+    val totalBytes = notes.sumOf { it.attachments.sumOf { a -> a.sizeBytes } }
+    val sizeMb = "%.2f MB".format(totalBytes / (1024.0 * 1024.0))
 
     Column(
         modifier = Modifier
@@ -866,32 +823,18 @@ fun StorageSettingsView(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = RoundedCornerShape(8.dp),
+            color = NoteySurfaces.Surface1,
+            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("Attachments Storage", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(4.dp))
-                Text("Internal Sandboxed Storage: $sizeMb", style = MaterialTheme.typography.bodyMedium)
+                Text("Local Sandboxed Storage", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = NoteySurfaces.TextPrimary)
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "All photos, videos, and files are cloned into app-private internal storage for permanent offline availability.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Text("• Indexed Notes: ${notes.size}", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = NoteySurfaces.TextSecondary))
+                Text("• Vault Attachments: $totalFiles", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = NoteySurfaces.TextSecondary))
+                Text("• File Footprint: $sizeMb", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = NoteySurfaces.TextSecondary))
             }
-        }
-
-        Button(
-            onClick = {
-                val cacheDir = context.cacheDir
-                val deleted = cacheDir.deleteRecursively()
-                Toast.makeText(context, if (deleted) "Cache cleared" else "Cache already empty", Toast.LENGTH_SHORT).show()
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Clear Temporary Cache")
         }
     }
 }
@@ -906,17 +849,18 @@ fun PerformanceSettingsView(settings: AppSettings) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = RoundedCornerShape(8.dp),
+            color = NoteySurfaces.Surface1,
+            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("Performance Status", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(6.dp))
-                Text("• Jetpack Compose Hardware Acceleration: Enabled", style = MaterialTheme.typography.bodyMedium)
-                Text("• Lazy Column Rendering: Active", style = MaterialTheme.typography.bodyMedium)
-                Text("• Sandboxed File Resolution: Active", style = MaterialTheme.typography.bodyMedium)
-                Text("• Offline Zero-Network Mode: Active", style = MaterialTheme.typography.bodyMedium)
+                Text("Hardware & Runtime Pipeline", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = NoteySurfaces.TextPrimary)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("• Pure Compose Hardware Acceleration: Active", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = NoteySurfaces.TextSecondary))
+                Text("• OLED Black Zero-Subpixel Drain: Active", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = NoteySurfaces.TextSecondary))
+                Text("• Infinite Canvas Matrix Transformation: Active", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = NoteySurfaces.TextSecondary))
+                Text("• Offline Zero-Network Architecture: Active", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = NoteySurfaces.TextSecondary))
             }
         }
     }
@@ -937,17 +881,18 @@ fun DataPrivacySettingsView(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = RoundedCornerShape(8.dp),
+            color = NoteySurfaces.Surface1,
+            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("Privacy & Local Guarantee", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("Privacy & Local Guarantee", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = NoteySurfaces.TextPrimary)
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     "Notey operates 100% on your device. Your notes, files, canvases, and workflows are never uploaded to any remote server or third-party service.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = NoteySurfaces.TextSecondary
                 )
             }
         }
@@ -962,6 +907,7 @@ fun DataPrivacySettingsView(
                 }
                 context.startActivity(Intent.createChooser(sendIntent, "Export Notey Backup"))
             },
+            shape = RoundedCornerShape(8.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Export Notes Backup (JSON)")
@@ -972,6 +918,7 @@ fun DataPrivacySettingsView(
                 noteStore.clearTrash()
                 Toast.makeText(context, "Trash cleared", Toast.LENGTH_SHORT).show()
             },
+            shape = RoundedCornerShape(8.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Empty Trash")
@@ -979,6 +926,7 @@ fun DataPrivacySettingsView(
 
         Button(
             onClick = onRequestDeleteAll,
+            shape = RoundedCornerShape(8.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -999,31 +947,37 @@ fun AboutSettingsView(context: Context) {
     ) {
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Purple Feather Logo
+        // Luxury Industrial Emblem
         Box(
             modifier = Modifier
-                .size(80.dp)
-                .clip(RoundedCornerShape(22.dp))
-                .background(MaterialTheme.colorScheme.primary),
+                .size(72.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(NoteySurfaces.Surface2)
+                .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Text("🪶", fontSize = 42.sp)
+            Icon(
+                NoteyIcons.Workflow,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(36.dp)
+            )
         }
 
         Text(
             text = "Notey",
             style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            color = NoteySurfaces.TextPrimary
         )
 
         Text(
             text = "Version ${SettingsStore.APP_VERSION} (Build ${SettingsStore.BUILD_NUMBER})",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = NoteySurfaces.TextMuted)
         )
 
         Text(
-            text = "Capture anything. Organize everything. Connect ideas.",
+            text = "Luxury Industrial Local-First Workspace",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.primary,
             fontWeight = FontWeight.Medium
@@ -1031,7 +985,6 @@ fun AboutSettingsView(context: Context) {
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // View Source Code Button
         Button(
             onClick = {
                 try {
@@ -1041,24 +994,25 @@ fun AboutSettingsView(context: Context) {
                     Toast.makeText(context, "Unable to open link", Toast.LENGTH_SHORT).show()
                 }
             },
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(8.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(50.dp)
+                .height(46.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("View Source Code", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text("View Source Code", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // Developer Attribution
+        // Developer Attribution (Preserved)
         Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = RoundedCornerShape(8.dp),
+            color = NoteySurfaces.Surface1,
+            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -1068,13 +1022,13 @@ fun AboutSettingsView(context: Context) {
                 Text(
                     text = SettingsStore.DEVELOPER_ATTRIBUTION,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = NoteySurfaces.TextPrimary
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Crafted with Jetpack Compose & Material Design 3",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = "Crafted with Jetpack Compose & Local-First Architecture",
+                    style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, color = NoteySurfaces.TextSecondary)
                 )
             }
         }

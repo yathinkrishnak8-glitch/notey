@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -36,6 +37,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -46,6 +48,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -740,8 +745,11 @@ fun CanvasWorkspaceScreen(
         canvasStore.save(updated)
     }
 
+    val density = LocalDensity.current
+    val isDark = isSystemInDarkTheme()
+
     // Viewport & Zoom State
-    var scale by remember(currentDoc.id) { mutableStateOf(currentDoc.zoom.coerceIn(0.25f, 4.0f)) }
+    var scale by remember(currentDoc.id) { mutableStateOf(currentDoc.zoom.coerceIn(0.25f, 3.5f)) }
     var panOffset by remember(currentDoc.id) { mutableStateOf(Offset(currentDoc.panX, currentDoc.panY)) }
 
     // Active Selection State
@@ -751,19 +759,18 @@ fun CanvasWorkspaceScreen(
     // Dialog & Sheet Controls
     var showAddContentSheet by remember { mutableStateOf(false) }
     var showEditNodeDialog by remember { mutableStateOf(false) }
+    var showRenameDocDialog by remember { mutableStateOf(false) }
     var showConnectDialog by remember { mutableStateOf(false) }
     var connectSourceNodeId by remember { mutableStateOf<String?>(null) }
     var activeMediaPreview by remember { mutableStateOf<CanvasNode?>(null) }
     var imageToEditPath by remember { mutableStateOf<String?>(null) }
-    var showAssetPicker by remember { mutableStateOf(false) }
 
     // Grid Preferences (Local toggle overrides)
     var isGridVisible by remember { mutableStateOf(settings.canvasGrid) }
     var isSnapToGrid by remember { mutableStateOf(settings.canvasSnapToGrid) }
 
-    // Media Picker Launcher
-    var pendingMediaType by remember { mutableStateOf("image") }
-    val mediaPickerLauncher = rememberLauncherForActivityResult(
+    // Device Image / Logo Upload Picker
+    val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null && noteStore != null) {
@@ -774,257 +781,38 @@ fun CanvasWorkspaceScreen(
                     id = UUID.randomUUID().toString(),
                     type = if (isVid) CanvasNodeType.VIDEO else CanvasNodeType.IMAGE,
                     title = att.displayName,
-                    content = if (isVid) "Video Card" else "Photo Card",
+                    content = if (isVid) "Video Card" else "Custom Image / Logo",
                     x = (200f - panOffset.x) / scale,
                     y = (200f - panOffset.y) / scale,
-                    width = 200f,
-                    height = 160f,
+                    width = 180f,
+                    height = 140f,
                     mediaPath = att.filePath,
                     mediaType = if (isVid) "video" else "image"
                 )
                 commitDocChange(currentDoc.copy(nodes = currentDoc.nodes + newNode))
                 selectedNodeId = newNode.id
+                Toast.makeText(context, "Image added to canvas", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(NoteySurfaces.Surface0)
     ) {
-        // Top Toolbar
-        Surface(
-            tonalElevation = 2.dp,
-            color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Return to Overview")
-                }
 
-                Column(modifier = Modifier.weight(1f).padding(horizontal = 6.dp)) {
-                    Text(
-                        text = currentDoc.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = currentDoc.type.name.lowercase().replaceFirstChar { it.uppercase() },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
 
-                // Undo & Redo
-                IconButton(onClick = { applyUndo() }, enabled = undoStack.isNotEmpty()) {
-                    Text("↺", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (undoStack.isNotEmpty()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline)
-                }
-                IconButton(onClick = { applyRedo() }, enabled = redoStack.isNotEmpty()) {
-                    Text("↻", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (redoStack.isNotEmpty()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline)
-                }
-
-                // Zoom Pill
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = "–",
-                            modifier = Modifier
-                                .clickable { scale = (scale - 0.2f).coerceAtLeast(0.25f) }
-                                .padding(horizontal = 6.dp),
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "${(scale * 100).roundToInt()}%",
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                        Text(
-                            text = "+",
-                            modifier = Modifier
-                                .clickable { scale = (scale + 0.2f).coerceAtMost(4.0f) }
-                                .padding(horizontal = 6.dp),
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                // Toggle Grid
-                IconButton(onClick = { isGridVisible = !isGridVisible }) {
-                    Icon(
-                        if (isGridVisible) Icons.Default.Check else Icons.Default.Close,
-                        contentDescription = "Toggle Grid",
-                        tint = if (isGridVisible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                    )
-                }
-
-                // Add Object FAB / Button
-                FilledTonalIconButton(onClick = { showAddContentSheet = true }) {
-                    Icon(Icons.Default.Add, contentDescription = "Add to Canvas")
-                }
-            }
-        }
-
-        // Contextual Selection Toolbar
-        if (selectedNode != null) {
-            val node = selectedNode
-            Surface(
-                color = MaterialTheme.colorScheme.primaryContainer,
-                tonalElevation = 4.dp,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = node.title.ifBlank { node.type.name },
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.widthIn(max = 120.dp)
-                    )
-
-                    FilledTonalButton(
-                        onClick = { showEditNodeDialog = true },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text("Edit", fontSize = 12.sp)
-                    }
-
-                    // Open Real Content (if Note or Folder)
-                    if (node.noteId != null && onOpenNote != null) {
-                        Button(
-                            onClick = { onOpenNote(node.noteId) },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Text("Open Note", fontSize = 12.sp)
-                        }
-                    }
-
-                    if (!node.folderName.isNullOrBlank() && onOpenFolder != null) {
-                        Button(
-                            onClick = { onOpenFolder(node.folderName) },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Text("Open Folder", fontSize = 12.sp)
-                        }
-                    }
-
-                    if (node.type == CanvasNodeType.IMAGE && node.mediaPath.isNotBlank()) {
-                        FilledTonalButton(
-                            onClick = { imageToEditPath = node.mediaPath },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Text("Edit Image", fontSize = 12.sp)
-                        }
-                    }
-
-                    // Connect button
-                    FilledTonalButton(
-                        onClick = {
-                            connectSourceNodeId = node.id
-                            showConnectDialog = true
-                        },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text("Connect", fontSize = 12.sp)
-                    }
-
-                    // Duplicate button
-                    FilledTonalButton(
-                        onClick = {
-                            val cloned = node.copy(
-                                id = UUID.randomUUID().toString(),
-                                x = node.x + 24f,
-                                y = node.y + 24f,
-                                title = if (node.title.isNotBlank()) "${node.title} (Copy)" else ""
-                            )
-                            commitDocChange(currentDoc.copy(nodes = currentDoc.nodes + cloned))
-                            selectedNodeId = cloned.id
-                        },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text("Copy", fontSize = 12.sp)
-                    }
-
-                    // Bring Forward
-                    IconButton(
-                        onClick = {
-                            val reordered = currentDoc.nodes.filter { it.id != node.id } + node
-                            commitDocChange(currentDoc.copy(nodes = reordered))
-                        },
-                        modifier = Modifier.size(30.dp)
-                    ) {
-                        Text("▲", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    }
-
-                    // Send Backward
-                    IconButton(
-                        onClick = {
-                            val reordered = listOf(node) + currentDoc.nodes.filter { it.id != node.id }
-                            commitDocChange(currentDoc.copy(nodes = reordered))
-                        },
-                        modifier = Modifier.size(30.dp)
-                    ) {
-                        Text("▼", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    }
-
-                    // Remove from Canvas (Leaves underlying Note/Folder intact)
-                    IconButton(
-                        onClick = {
-                            val remainingNodes = currentDoc.nodes.filter { it.id != node.id }
-                            val remainingConns = currentDoc.connectors.filter {
-                                it.fromNodeId != node.id && it.toNodeId != node.id
-                            }
-                            selectedNodeId = null
-                            commitDocChange(currentDoc.copy(nodes = remainingNodes, connectors = remainingConns))
-                        },
-                        modifier = Modifier.size(30.dp)
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.error)
-                    }
-
-                    IconButton(
-                        onClick = { selectedNodeId = null },
-                        modifier = Modifier.size(30.dp)
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = "Deselect")
-                    }
-                }
-            }
-        }
-
-        // Touch-First Infinite Canvas Area
+        // Touch-First Infinite Canvas Area with strict boundary clipping
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .weight(1f)
+                .clipToBounds()
                 .pointerInput(currentDoc.id) {
                     // Natural 1-finger pan and 2-finger pinch zoom around gesture midpoint
                     detectTransformGestures { centroid, pan, zoom, _ ->
                         val oldScale = scale
-                        val newScale = (oldScale * zoom).coerceIn(0.25f, 4.0f)
+                        val newScale = (oldScale * zoom).coerceIn(0.25f, 3.5f)
 
                         // Keep world point under centroid approximately stationary
                         panOffset = centroid - (centroid - panOffset) * (newScale / oldScale) + pan
@@ -1035,111 +823,107 @@ fun CanvasWorkspaceScreen(
                     }
                 }
         ) {
-            val gridLineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-            val connectorColor = MaterialTheme.colorScheme.primary
+            val gridLineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.18f else 0.25f)
+            val connectorColor = if (isDark) Color(0xFF8AB4F8) else MaterialTheme.colorScheme.primary
 
-            // Background Canvas: Subtle Graph-Paper Grid and Connectors
+            // Background Canvas: #27272A Radial Dot Grid (24dp spacing) and SVG Cubic Bezier Connectors
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val canvasWidth = size.width
                 val canvasHeight = size.height
 
-                // Draw Graph-Paper Lines (Subtle horizontal & vertical lines)
+                // Radial Dot Grid with #27272A (24dp spacing)
                 if (isGridVisible) {
-                    val step = 32f * scale
-                    val startX = (panOffset.x % step + step) % step
-                    val startY = (panOffset.y % step + step) % step
+                    val dotSpacing = with(density) { 24.dp.toPx() } * scale
+                    if (dotSpacing > 8f) {
+                        val startX = (panOffset.x % dotSpacing + dotSpacing) % dotSpacing
+                        val startY = (panOffset.y % dotSpacing + dotSpacing) % dotSpacing
+                        val dotColor = Color(0xFF27272A)
+                        val dotRadius = (1.2f * scale).coerceIn(0.8f, 2.4f)
 
-                    var x = startX
-                    while (x < canvasWidth) {
-                        drawLine(
-                            color = gridLineColor,
-                            start = Offset(x, 0f),
-                            end = Offset(x, canvasHeight),
-                            strokeWidth = 1f
-                        )
-                        x += step
-                    }
-
-                    var y = startY
-                    while (y < canvasHeight) {
-                        drawLine(
-                            color = gridLineColor,
-                            start = Offset(0f, y),
-                            end = Offset(canvasWidth, y),
-                            strokeWidth = 1f
-                        )
-                        y += step
+                        var x = startX
+                        while (x < canvasWidth) {
+                            var y = startY
+                            while (y < canvasHeight) {
+                                drawCircle(
+                                    color = dotColor,
+                                    radius = dotRadius,
+                                    center = Offset(x, y)
+                                )
+                                y += dotSpacing
+                            }
+                            x += dotSpacing
+                        }
                     }
                 }
 
-                // Draw Directional Connectors & Arrowheads
+                // Connectors: SVG Cubic Bezier curves (#3F3F46, dashed 4 4)
                 currentDoc.connectors.forEach { conn ->
                     val fromNode = currentDoc.nodes.firstOrNull { it.id == conn.fromNodeId }
                     val toNode = currentDoc.nodes.firstOrNull { it.id == conn.toNodeId }
 
-                    if (fromNode != null && toNode != null) {
-                        val fromCenter = Offset(
-                            x = panOffset.x + (fromNode.x + fromNode.width / 2f) * scale,
+                    if (fromNode != null && toNode != null && fromNode.id != toNode.id) {
+                        val p1 = Offset(
+                            x = panOffset.x + (fromNode.x + fromNode.width) * scale,
                             y = panOffset.y + (fromNode.y + fromNode.height / 2f) * scale
                         )
-                        val toCenter = Offset(
-                            x = panOffset.x + (toNode.x + toNode.width / 2f) * scale,
+                        val p2 = Offset(
+                            x = panOffset.x + toNode.x * scale,
                             y = panOffset.y + (toNode.y + toNode.height / 2f) * scale
                         )
 
-                        drawLine(
-                            color = connectorColor,
-                            start = fromCenter,
-                            end = toCenter,
-                            strokeWidth = (2.5f * scale).coerceIn(1.5f, 4f)
+                        val dx = (p2.x - p1.x).coerceAtLeast(30f) * 0.5f
+                        val ctrl1 = Offset(p1.x + dx, p1.y)
+                        val ctrl2 = Offset(p2.x - dx, p2.y)
+
+                        val bezierPath = Path().apply {
+                            moveTo(p1.x, p1.y)
+                            cubicTo(ctrl1.x, ctrl1.y, ctrl2.x, ctrl2.y, p2.x, p2.y)
+                        }
+
+                        drawPath(
+                            path = bezierPath,
+                            color = Color(0xFF3F3F46),
+                            style = Stroke(
+                                width = (2f * scale).coerceIn(1.5f, 3.5f),
+                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f)
+                            )
                         )
 
-                        // Arrowhead
-                        val angle = atan2(toCenter.y - fromCenter.y, toCenter.x - fromCenter.x)
-                        val arrowLength = 14f * scale
-                        val p1 = Offset(
-                            (toCenter.x - arrowLength * cos(angle - Math.PI / 6)).toFloat(),
-                            (toCenter.y - arrowLength * sin(angle - Math.PI / 6)).toFloat()
+                        // Arrowhead indicator at destination
+                        drawCircle(
+                            color = Color(0xFF71717A),
+                            radius = (3f * scale).coerceIn(2.5f, 5f),
+                            center = p2
                         )
-                        val p2 = Offset(
-                            (toCenter.x - arrowLength * cos(angle + Math.PI / 6)).toFloat(),
-                            (toCenter.y - arrowLength * sin(angle + Math.PI / 6)).toFloat()
-                        )
-                        drawLine(connectorColor, toCenter, p1, strokeWidth = 2.5f * scale)
-                        drawLine(connectorColor, toCenter, p2, strokeWidth = 2.5f * scale)
                     }
                 }
             }
 
-            // Canvas Objects Layer
+            // Canvas Objects Layer (Pixel-perfect scale & world transform)
             currentDoc.nodes.forEach { node ->
                 val isSelected = node.id == selectedNodeId
                 val screenX = panOffset.x + node.x * scale
                 val screenY = panOffset.y + node.y * scale
-                val screenW = (node.width * scale).coerceAtLeast(60f)
-                val screenH = (node.height * scale).coerceAtLeast(36f)
+                val screenWidthDp = with(density) { ((node.width * scale).coerceAtLeast(60f)).toDp() }
+                val screenHeightDp = with(density) { ((node.height * scale).coerceAtLeast(36f)).toDp() }
 
-                val nodeShape = when (node.shapeType) {
-                    "circle" -> CircleShape
-                    "pill" -> RoundedCornerShape(percent = 50)
-                    "diamond" -> RoundedCornerShape(12.dp)
-                    "rect" -> RoundedCornerShape(4.dp)
-                    else -> RoundedCornerShape(12.dp)
-                }
+                val nodeShape = RoundedCornerShape(8.dp)
+                val nodeAccent = GoogleKeepPalette.getAccentColor(node.colorIndex)
+                val invertedStatusText = getInvertedTextColor(nodeAccent)
 
                 Surface(
                     shape = nodeShape,
-                    color = getCardBackground(node),
+                    color = NoteySurfaces.Surface1,
                     tonalElevation = if (isSelected) 8.dp else 2.dp,
-                    shadowElevation = if (isSelected) 8.dp else 2.dp,
+                    shadowElevation = if (isSelected) 6.dp else 2.dp,
                     border = if (isSelected) {
-                        androidx.compose.foundation.BorderStroke(2.5.dp, MaterialTheme.colorScheme.primary)
+                        androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
                     } else {
-                        androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder)
                     },
                     modifier = Modifier
                         .offset { IntOffset(screenX.roundToInt(), screenY.roundToInt()) }
-                        .size(screenW.dp, screenH.dp)
+                        .size(screenWidthDp, screenHeightDp)
                         .pointerInput(node.id, scale, isSnapToGrid) {
                             detectDragGestures(
                                 onDragStart = {
@@ -1167,140 +951,415 @@ fun CanvasWorkspaceScreen(
                             )
                         }
                         .clickable { selectedNodeId = if (isSelected) null else node.id }
-                        .padding(8.dp)
                 ) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        // Card Inner Content
-                        if (node.type == CanvasNodeType.IMAGE && node.mediaPath.isNotBlank()) {
-                            val bmp = remember(node.mediaPath) {
-                                try { BitmapFactory.decodeFile(node.mediaPath) } catch (_: Exception) { null }
-                            }
-                            if (bmp != null) {
-                                Image(
-                                    bitmap = bmp.asImageBitmap(),
-                                    contentDescription = node.title,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable { activeMediaPreview = node }
-                                )
-                            }
-                        } else if (node.type == CanvasNodeType.VIDEO && node.mediaPath.isNotBlank()) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clickable { activeMediaPreview = node },
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text("🎬", fontSize = 24.sp)
-                                Text(node.title.ifBlank { "Video" }, style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                                Text("▶ Tap to play", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
-                            }
-                        } else if (node.type == CanvasNodeType.NOTE) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clickable { if (node.noteId != null && onOpenNote != null) onOpenNote(node.noteId) },
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text("📝", fontSize = 20.sp)
-                                Text(node.title.ifBlank { "Note" }, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, maxLines = 1)
-                                if (node.content.isNotBlank()) {
-                                    Text(node.content, style = MaterialTheme.typography.labelSmall, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        // 3.5dp dynamic accent left border
+                        Box(
+                            modifier = Modifier
+                                .width(3.5.dp)
+                                .fillMaxHeight()
+                                .background(nodeAccent)
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .padding(8.dp)
+                        ) {
+                            if (node.type == CanvasNodeType.IMAGE && node.mediaPath.isNotBlank()) {
+                                val bmp = remember(node.mediaPath) {
+                                    try { BitmapFactory.decodeFile(node.mediaPath) } catch (_: Exception) { null }
                                 }
-                            }
-                        } else if (node.type == CanvasNodeType.FOLDER) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clickable { if (!node.folderName.isNullOrBlank() && onOpenFolder != null) onOpenFolder(node.folderName) },
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text("📁", fontSize = 20.sp)
-                                Text(node.title.ifBlank { "Folder" }, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, maxLines = 1)
-                            }
-                        } else {
-                            // Text, Sticky, Flowchart Node
-                            Column(
-                                modifier = Modifier.fillMaxSize(),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text(
-                                    text = node.title.ifBlank { node.type.name },
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    textAlign = TextAlign.Center,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                if (node.content.isNotBlank()) {
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = node.content,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        textAlign = TextAlign.Center,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
+                                if (bmp != null) {
+                                    Image(
+                                        bitmap = bmp.asImageBitmap(),
+                                        contentDescription = node.title,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable { activeMediaPreview = node }
                                     )
                                 }
-                            }
-                        }
-
-                        // Resize Handle on Bottom Right (when selected)
-                        if (isSelected) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .size(24.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary)
-                                    .pointerInput(node.id, scale) {
-                                        detectDragGestures(
-                                            onDragStart = { pushUndo() },
-                                            onDragEnd = { canvasStore.save(currentDoc) },
-                                            onDrag = { change, dragAmount ->
-                                                change.consume()
-                                                val dw = dragAmount.x / scale
-                                                val dh = dragAmount.y / scale
-                                                val updated = currentDoc.nodes.map {
-                                                    if (it.id == node.id) {
-                                                        it.copy(
-                                                            width = (it.width + dw).coerceAtLeast(80f),
-                                                            height = (it.height + dh).coerceAtLeast(40f)
-                                                        )
-                                                    } else it
-                                                }
-                                                currentDoc = currentDoc.copy(nodes = updated)
-                                            }
+                            } else if (node.type == CanvasNodeType.VIDEO && node.mediaPath.isNotBlank()) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clickable { activeMediaPreview = node },
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                                    Text(
+                                        text = node.title.ifBlank { "Video" },
+                                        style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, color = NoteySurfaces.TextPrimary),
+                                        maxLines = 1
+                                    )
+                                }
+                            } else if (node.type == CanvasNodeType.NOTE) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clickable { if (node.noteId != null && onOpenNote != null) onOpenNote(node.noteId) },
+                                    horizontalAlignment = Alignment.Start,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(NoteyIcons.Document, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = node.title.ifBlank { "Note" },
+                                            style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = NoteySurfaces.TextPrimary),
+                                            maxLines = 1
                                         )
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("↘", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    if (node.content.isNotBlank()) {
+                                        Text(
+                                            text = node.content,
+                                            style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 10.sp, color = NoteySurfaces.TextSecondary),
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            } else if (node.type == CanvasNodeType.FOLDER) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clickable { if (!node.folderName.isNullOrBlank() && onOpenFolder != null) onOpenFolder(node.folderName) },
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(NoteyIcons.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = node.title.ifBlank { "Folder" },
+                                        style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = NoteySurfaces.TextPrimary),
+                                        maxLines = 1
+                                    )
+                                }
+                            } else {
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    horizontalAlignment = Alignment.Start,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    // Status pill with automatic contrast inversion
+                                    Surface(
+                                        shape = RoundedCornerShape(3.dp),
+                                        color = nodeAccent
+                                    ) {
+                                        Text(
+                                            text = node.type.name,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                            style = TextStyle(
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = invertedStatusText
+                                            )
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Text(
+                                        text = node.title.ifBlank { node.type.name },
+                                        style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = NoteySurfaces.TextPrimary),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (node.content.isNotBlank()) {
+                                        Text(
+                                            text = node.content,
+                                            style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 10.sp, color = NoteySurfaces.TextSecondary),
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Resize handle on bottom right (when selected)
+                            if (isSelected) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .size(16.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary)
+                                        .pointerInput(node.id, scale) {
+                                            detectDragGestures(
+                                                onDragStart = { pushUndo() },
+                                                onDragEnd = { canvasStore.save(currentDoc) },
+                                                onDrag = { change, dragAmount ->
+                                                    change.consume()
+                                                    val dw = dragAmount.x / scale
+                                                    val dh = dragAmount.y / scale
+                                                    val updated = currentDoc.nodes.map {
+                                                        if (it.id == node.id) {
+                                                            it.copy(
+                                                                width = (it.width + dw).coerceAtLeast(80f),
+                                                                height = (it.height + dh).coerceAtLeast(40f)
+                                                            )
+                                                        } else it
+                                                    }
+                                                    currentDoc = currentDoc.copy(nodes = updated)
+                                                }
+                                            )
+                                        }
+                                )
                             }
                         }
                     }
                 }
             }
+        }
 
-            // Quick Recenter Action Button
-            FilledTonalIconButton(
-                onClick = {
-                    scale = 1.0f
-                    panOffset = Offset(40f, 40f)
-                    currentDoc = currentDoc.copy(zoom = 1.0f, panX = 40f, panY = 40f)
-                    canvasStore.save(currentDoc)
-                },
+        // Floating Node Contextual Action Bar: Anchored DIRECTLY ABOVE selected node
+        if (selectedNode != null) {
+            val node = selectedNode
+            val nodeScrX = panOffset.x + (node.x * scale)
+            val nodeScrY = panOffset.y + (node.y * scale) - with(density) { 46.dp.toPx() }
+            val clampedX = nodeScrX.coerceIn(12f, 700f)
+            val clampedY = nodeScrY.coerceIn(70f, 1800f)
+
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = NoteySurfaces.Surface2,
+                border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorderStrong),
+                shadowElevation = 8.dp,
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(16.dp)
+                    .offset { IntOffset(clampedX.roundToInt(), clampedY.roundToInt()) }
             ) {
-                Icon(Icons.Default.Refresh, contentDescription = "Recenter View")
+                Row(
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    TextButton(
+                        onClick = { showEditNodeDialog = true },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Icon(NoteyIcons.Pencil, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Edit & Files", fontSize = 11.sp, color = NoteySurfaces.TextPrimary)
+                    }
+
+                    TextButton(
+                        onClick = {
+                            val cloned = node.copy(
+                                id = UUID.randomUUID().toString(),
+                                x = node.x + 30f,
+                                y = node.y + 30f,
+                                title = if (node.title.isNotBlank()) "${node.title} (Copy)" else ""
+                            )
+                            commitDocChange(currentDoc.copy(nodes = currentDoc.nodes + cloned))
+                            selectedNodeId = cloned.id
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text("Duplicate", fontSize = 11.sp, color = NoteySurfaces.TextPrimary)
+                    }
+
+                    TextButton(
+                        onClick = {
+                            connectSourceNodeId = node.id
+                            showConnectDialog = true
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text("Connect", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                    }
+
+                    IconButton(
+                        onClick = {
+                            commitDocChange(currentDoc.copy(
+                                nodes = currentDoc.nodes.filter { it.id != node.id },
+                                connectors = currentDoc.connectors.filter { it.fromNodeId != node.id && it.toNodeId != node.id }
+                            ))
+                            selectedNodeId = null
+                        },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(14.dp))
+                    }
+                }
+            }
+        }
+
+        // Floating Header Pill: Rounded capsule with back button, editable title, integrated zoom controls ([-] 100% [+]) with single-tap Recenter
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = NoteySurfaces.Surface2,
+            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorderStrong),
+            shadowElevation = 8.dp,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 16.dp, start = 12.dp, end = 12.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                IconButton(onClick = onBack, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = NoteySurfaces.TextPrimary, modifier = Modifier.size(16.dp))
+                }
+
+                Spacer(modifier = Modifier.width(4.dp))
+
+                // Editable Title
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { showRenameDocDialog = true }
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = currentDoc.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = NoteySurfaces.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 130.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(4.dp))
+
+                // Undo & Redo
+                IconButton(
+                    onClick = { applyUndo() },
+                    enabled = undoStack.isNotEmpty(),
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Text(
+                        "<",
+                        style = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 14.sp),
+                        color = if (undoStack.isNotEmpty()) NoteySurfaces.TextPrimary else NoteySurfaces.TextMuted
+                    )
+                }
+
+                IconButton(
+                    onClick = { applyRedo() },
+                    enabled = redoStack.isNotEmpty(),
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Text(
+                        ">",
+                        style = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 14.sp),
+                        color = if (redoStack.isNotEmpty()) NoteySurfaces.TextPrimary else NoteySurfaces.TextMuted
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(4.dp))
+
+                // Integrated Zoom Controls: [-] 100% [+]
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = NoteySurfaces.Surface3,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clickable { scale = (scale - 0.2f).coerceAtLeast(0.25f) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("-", color = NoteySurfaces.TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
+
+                        Text(
+                            text = "${(scale * 100).roundToInt()}%",
+                            style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = NoteySurfaces.TextPrimary),
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clickable { scale = (scale + 0.2f).coerceAtMost(3.5f) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("+", color = NoteySurfaces.TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(4.dp))
+
+                // Single-tap Recenter
+                IconButton(
+                    onClick = {
+                        scale = 1.0f
+                        panOffset = Offset(0f, 0f)
+                        commitDocChange(currentDoc.copy(zoom = 1.0f, panX = 0f, panY = 0f))
+                    },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(NoteyIcons.Recenter, contentDescription = "Recenter", tint = NoteySurfaces.TextSecondary, modifier = Modifier.size(16.dp))
+                }
+
+                Spacer(modifier = Modifier.width(2.dp))
+
+                // Add Object Button
+                IconButton(
+                    onClick = { showAddContentSheet = true },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Add Object", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+
+        // Live Radar Minimap: In bottom-right corner tracking node coordinates
+        Surface(
+            shape = RoundedCornerShape(6.dp),
+            color = NoteySurfaces.Surface2.copy(alpha = 0.9f),
+            border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorderStrong),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+                .size(64.dp, 48.dp)
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize().padding(3.dp)) {
+                val mw = size.width
+                val mh = size.height
+
+                val minX = (currentDoc.nodes.minOfOrNull { it.x } ?: 0f).coerceAtMost(0f)
+                val maxX = (currentDoc.nodes.maxOfOrNull { it.x + it.width } ?: 1000f).coerceAtLeast(1000f)
+                val minY = (currentDoc.nodes.minOfOrNull { it.y } ?: 0f).coerceAtMost(0f)
+                val maxY = (currentDoc.nodes.maxOfOrNull { it.y + it.height } ?: 800f).coerceAtLeast(800f)
+
+                val spanX = (maxX - minX).coerceAtLeast(100f)
+                val spanY = (maxY - minY).coerceAtLeast(100f)
+
+                currentDoc.nodes.forEach { n ->
+                    val nx = ((n.x - minX) / spanX) * mw
+                    val ny = ((n.y - minY) / spanY) * mh
+                    val isSel = n.id == selectedNodeId
+                    drawCircle(
+                        color = if (isSel) Color(0xFF38BDF8) else Color(0xFF71717A),
+                        radius = if (isSel) 2.5f else 1.5f,
+                        center = Offset(nx, ny)
+                    )
+                }
+
+                // Camera viewport indicator
+                val camX = ((-panOffset.x / scale - minX) / spanX) * mw
+                val camY = ((-panOffset.y / scale - minY) / spanY) * mh
+                val camW = ((size.width * 2f / scale) / spanX) * mw
+                val camH = ((size.height * 2f / scale) / spanY) * mh
+
+                drawRect(
+                    color = Color(0x4438BDF8),
+                    topLeft = Offset(camX.coerceIn(0f, mw), camY.coerceIn(0f, mh)),
+                    size = Size(camW.coerceIn(4f, mw), camH.coerceIn(4f, mh)),
+                    style = Stroke(width = 1f)
+                )
             }
         }
     }
@@ -1418,6 +1477,39 @@ fun CanvasWorkspaceScreen(
         )
     }
 
+    // Rename Canvas Document Dialog
+    if (showRenameDocDialog) {
+        var newDocName by remember(currentDoc.name) { mutableStateOf(currentDoc.name) }
+        AlertDialog(
+            onDismissRequest = { showRenameDocDialog = false },
+            title = { Text("Rename Canvas") },
+            text = {
+                OutlinedTextField(
+                    value = newDocName,
+                    onValueChange = { newDocName = it },
+                    label = { Text("Canvas Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (newDocName.isNotBlank()) {
+                        commitDocChange(currentDoc.copy(name = newDocName.trim()))
+                    }
+                    showRenameDocDialog = false
+                }) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRenameDocDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     // ADD CONTENT MODAL BOTTOM SHEET
     if (showAddContentSheet) {
         var pickerMode by remember { mutableStateOf("MENU") } // "MENU", "PICK_NOTE", "PICK_FOLDER"
@@ -1444,7 +1536,7 @@ fun CanvasWorkspaceScreen(
                                 y = (240f - panOffset.y) / scale,
                                 width = 140f,
                                 height = 70f,
-                                colorIndex = 1
+                                colorIndex = 3
                             )
                             commitDocChange(currentDoc.copy(nodes = currentDoc.nodes + n))
                             selectedNodeId = n.id
@@ -1467,29 +1559,18 @@ fun CanvasWorkspaceScreen(
                     )
 
                     ListItem(
-                        headlineContent = { Text("Add Photo / Image") },
-                        supportingContent = { Text("Insert resizable image card") },
+                        headlineContent = { Text("Upload Image / Custom Logo") },
+                        supportingContent = { Text("Choose a photo, logo, or icon from your device") },
                         leadingContent = { Icon(Icons.Default.Add, contentDescription = null) },
                         modifier = Modifier.clickable {
-                            pendingMediaType = "image"
                             showAddContentSheet = false
-                            mediaPickerLauncher.launch(arrayOf("image/*"))
+                            imagePickerLauncher.launch(arrayOf("image/*"))
                         }
                     )
 
                     ListItem(
-                        headlineContent = { Text("Browse 600+ Visual Assets") },
-                        supportingContent = { Text("Offline vector icons, logos, diagrams & shapes") },
-                        leadingContent = { Icon(Icons.Default.Star, contentDescription = null) },
-                        modifier = Modifier.clickable {
-                            showAddContentSheet = false
-                            showAssetPicker = true
-                        }
-                    )
-
-                    ListItem(
-                        headlineContent = { Text("Flowchart / Workflow Node") },
-                        supportingContent = { Text("Add Process, Decision, or Terminal node") },
+                        headlineContent = { Text("Flowchart / Workflow Step") },
+                        supportingContent = { Text("Add Process step or task node") },
                         leadingContent = { Icon(Icons.Default.Share, contentDescription = null) },
                         modifier = Modifier.clickable {
                             val n = CanvasNode(
@@ -1497,9 +1578,30 @@ fun CanvasWorkspaceScreen(
                                 title = "Process Step",
                                 x = (240f - panOffset.x) / scale,
                                 y = (240f - panOffset.y) / scale,
-                                width = 150f,
+                                width = 160f,
                                 height = 60f,
                                 shapeType = "rounded"
+                            )
+                            commitDocChange(currentDoc.copy(nodes = currentDoc.nodes + n))
+                            selectedNodeId = n.id
+                            showAddContentSheet = false
+                        }
+                    )
+
+                    ListItem(
+                        headlineContent = { Text("Decision Node") },
+                        supportingContent = { Text("Add conditional diamond branch") },
+                        leadingContent = { Icon(Icons.Default.Refresh, contentDescription = null) },
+                        modifier = Modifier.clickable {
+                            val n = CanvasNode(
+                                type = CanvasNodeType.DECISION,
+                                title = "Decision?",
+                                x = (240f - panOffset.x) / scale,
+                                y = (240f - panOffset.y) / scale,
+                                width = 140f,
+                                height = 70f,
+                                shapeType = "diamond",
+                                colorIndex = 1
                             )
                             commitDocChange(currentDoc.copy(nodes = currentDoc.nodes + n))
                             selectedNodeId = n.id
@@ -1524,7 +1626,8 @@ fun CanvasWorkspaceScreen(
                                         x = (200f - panOffset.x) / scale,
                                         y = (200f - panOffset.y) / scale,
                                         width = 160f,
-                                        height = 80f
+                                        height = 80f,
+                                        colorIndex = note.colorIndex
                                     )
                                     commitDocChange(currentDoc.copy(nodes = currentDoc.nodes + newNode))
                                     selectedNodeId = newNode.id
@@ -1566,28 +1669,6 @@ fun CanvasWorkspaceScreen(
                 }
             }
         }
-    }
-
-    // Visual Asset Picker Sheet
-    if (showAssetPicker) {
-        AssetPickerSheet(
-            onDismiss = { showAssetPicker = false },
-            onAssetSelected = { asset ->
-                val newNode = CanvasNode(
-                    type = CanvasNodeType.ASSET,
-                    title = asset.name,
-                    assetId = asset.id,
-                    x = (220f - panOffset.x) / scale,
-                    y = (220f - panOffset.y) / scale,
-                    width = 110f,
-                    height = 110f,
-                    shapeType = "rounded"
-                )
-                commitDocChange(currentDoc.copy(nodes = currentDoc.nodes + newNode))
-                selectedNodeId = newNode.id
-                showAssetPicker = false
-            }
-        )
     }
 
     // Media Popup Player Dialog
@@ -1655,15 +1736,30 @@ fun CanvasWorkspaceScreen(
     }
 }
 
-private fun getCardBackground(node: CanvasNode): Color {
-    return when (node.colorIndex) {
-        1 -> Color(0xFFEFF6FF)
-        2 -> Color(0xFFECFDF5)
-        3 -> Color(0xFFFEF3C7)
-        4 -> Color(0xFFFAF5FF)
-        5 -> Color(0xFFFFF1F2)
-        else -> Color(0xFFF8FAFC)
+private fun getCanvasNodeBg(node: CanvasNode, isDark: Boolean): Color {
+    return if (isDark) {
+        when (node.colorIndex) {
+            1 -> Color(0xFF1E3A8A) // Dark Blue
+            2 -> Color(0xFF064E3B) // Dark Green
+            3 -> Color(0xFF78350F) // Dark Amber / Yellow
+            4 -> Color(0xFF581C87) // Dark Purple
+            5 -> Color(0xFF881337) // Dark Rose
+            else -> Color(0xFF1E293B) // Slate Dark
+        }
+    } else {
+        when (node.colorIndex) {
+            1 -> Color(0xFFEFF6FF) // Light Blue
+            2 -> Color(0xFFECFDF5) // Light Green
+            3 -> Color(0xFFFEF3C7) // Light Amber / Cream
+            4 -> Color(0xFFFAF5FF) // Light Purple
+            5 -> Color(0xFFFFF1F2) // Light Rose
+            else -> Color(0xFFFFFFFF) // Crisp White
+        }
     }
+}
+
+private fun getCanvasNodeTextColor(node: CanvasNode, isDark: Boolean): Color {
+    return if (isDark) Color(0xFFF1F5F9) else Color(0xFF0F172A)
 }
 
 private fun getPaletteColor(idx: Int): Color {

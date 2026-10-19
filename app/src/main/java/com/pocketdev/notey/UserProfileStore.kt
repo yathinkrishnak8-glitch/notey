@@ -37,8 +37,8 @@ object UserProfileValidator {
 
     /**
      * Generates a time-aware personalized greeting using local device time.
-     * E.g. "Good morning, Alex! 👋"
-     * If name is empty, returns a neutral fallback "Welcome to Notey! 👋".
+     * E.g. "Good morning, Alex"
+     * If name is empty, returns a neutral fallback "Welcome to Notey".
      */
     fun getTimeAwareGreeting(displayName: String): String {
         val trimmed = displayName.trim()
@@ -49,7 +49,7 @@ object UserProfileValidator {
             in 17..21 -> "Good evening"
             else -> "Welcome back"
         }
-        return if (trimmed.isNotBlank()) "$prefix, $trimmed! 👋" else "$prefix to Notey! 👋"
+        return if (trimmed.isNotBlank()) "$prefix, $trimmed" else "$prefix to Notey"
     }
 
     /**
