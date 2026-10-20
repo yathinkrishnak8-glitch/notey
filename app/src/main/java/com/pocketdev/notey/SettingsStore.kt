@@ -14,9 +14,9 @@ enum class UIStyle {
 }
 
 enum class AnimationSpeed(val durationMs: Int, val label: String) {
-    INSTANT(0, "Instant"),
-    FLUID(240, "Fluid 240ms"),
-    SPRING(380, "Smooth Spring")
+    INSTANT(0, "Instant (Zero Latency)"),
+    FLUID(240, "Fluid (240ms)"),
+    SPRING(380, "Smooth Spring (Physics)")
 }
 
 data class ColorPreset(
@@ -99,7 +99,7 @@ data class AppSettings(
     val dynamicColor: Boolean = false,
     val animationsEnabled: Boolean = true,
     val reduceMotion: Boolean = false,
-    val animationSpeed: AnimationSpeed = AnimationSpeed.FLUID,
+    val animationSpeed: AnimationSpeed = AnimationSpeed.SPRING,
     val hapticFeedback: Boolean = true,
     val confirmDestructive: Boolean = true,
     val hasSeenOnboarding: Boolean = false,
@@ -108,7 +108,7 @@ data class AppSettings(
     val autoSave: Boolean = true,
     val canvasGrid: Boolean = true,
     val canvasSnapToGrid: Boolean = false,
-    val canvasBackground: String = "dots", // "dots", "grid", "blank"
+    val canvasBackground: String = "grid", // "grid", "dots", "blank"
 )
 
 class SettingsStore(context: Context) {
@@ -137,7 +137,7 @@ class SettingsStore(context: Context) {
         val uiStyleStr = prefs.getString("ui_style", UIStyle.COMPACT.name) ?: UIStyle.COMPACT.name
         val uiStyle = try { UIStyle.valueOf(uiStyleStr) } catch (_: Exception) { UIStyle.COMPACT }
 
-        val animSpeedStr = prefs.getString("anim_speed", AnimationSpeed.FLUID.name) ?: AnimationSpeed.FLUID.name
+        val animSpeedStr = prefs.getString("anim_speed", AnimationSpeed.SPRING.name) ?: AnimationSpeed.SPRING.name
         val animSpeed = try {
             when (animSpeedStr) {
                 "SLOW" -> AnimationSpeed.SPRING
@@ -146,7 +146,7 @@ class SettingsStore(context: Context) {
                 else -> AnimationSpeed.valueOf(animSpeedStr)
             }
         } catch (_: Exception) {
-            AnimationSpeed.FLUID
+            AnimationSpeed.SPRING
         }
 
         return AppSettings(
@@ -165,7 +165,7 @@ class SettingsStore(context: Context) {
             autoSave = prefs.getBoolean("auto_save", true),
             canvasGrid = prefs.getBoolean("canvas_grid", true),
             canvasSnapToGrid = prefs.getBoolean("canvas_snap_grid", false),
-            canvasBackground = prefs.getString("canvas_bg", "dots") ?: "dots"
+            canvasBackground = prefs.getString("canvas_bg", "grid") ?: "grid"
         )
     }
 

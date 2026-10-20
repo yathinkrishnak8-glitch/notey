@@ -64,6 +64,7 @@ fun CardQuickEditBottomSheet(
     var tagsText by remember { mutableStateOf(note.folder) }
     var selectedColorIndex by remember { mutableStateOf(note.colorIndex) }
     var attachments by remember { mutableStateOf(note.attachments) }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     val currentColor = GoogleKeepPalette.getAccentColor(selectedColorIndex)
     val invertedTextColor = getInvertedContrastColor(currentColor)
@@ -325,6 +326,40 @@ fun CardQuickEditBottomSheet(
                                             fontFamily = FontFamily.Monospace,
                                             fontSize = 10.sp,
                                             color = NoteySurfaces.TextSecondary
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            if (f.exists()) {
+                                                FileEngine.copyFileToDownloads(context, f, att.mimeType).onSuccess { path ->
+                                                    android.widget.Toast.makeText(context, "Saved to $path", android.widget.Toast.LENGTH_SHORT).show()
+                                                }.onFailure { err ->
+                                                    android.widget.Toast.makeText(context, "Save failed: ${err.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            NoteyIcons.Download,
+                                            contentDescription = "Save to Downloads",
+                                            tint = Color(0xFF38BDF8),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            if (f.exists()) {
+                                                FileEngine.shareFile(context, f, att.mimeType, att.displayName)
+                                            }
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            NoteyIcons.Share,
+                                            contentDescription = "Share File",
+                                            tint = NoteySurfaces.TextSecondary,
+                                            modifier = Modifier.size(14.dp)
                                         )
                                     }
                                     IconButton(

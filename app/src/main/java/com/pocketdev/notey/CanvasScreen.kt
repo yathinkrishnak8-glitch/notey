@@ -634,12 +634,29 @@ private fun CanvasCard(
             .height(150.dp)
             .clickable(onClick = onClick)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Blueprint Graph Grid Background for Canvas Card
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val step = 16.dp.toPx()
+                val gridColor = Color(0xFF38BDF8).copy(alpha = 0.07f)
+                var x = 0f
+                while (x < size.width) {
+                    drawLine(gridColor, Offset(x, 0f), Offset(x, size.height), 0.8f)
+                    x += step
+                }
+                var y = 0f
+                while (y < size.height) {
+                    drawLine(gridColor, Offset(0f, y), Offset(size.width, y), 0.8f)
+                    y += step
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -695,6 +712,7 @@ private fun CanvasCard(
             }
         }
     }
+}
 }
 
 // =========================================================================
@@ -832,32 +850,63 @@ fun CanvasWorkspaceScreen(
             val gridLineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.18f else 0.25f)
             val connectorColor = if (isDark) Color(0xFF8AB4F8) else MaterialTheme.colorScheme.primary
 
-            // Background Canvas: #27272A Radial Dot Grid (24dp spacing) and SVG Cubic Bezier Connectors
+            // Background Canvas: Architectural Graph Grid & SVG Cubic Bezier Connectors
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val canvasWidth = size.width
                 val canvasHeight = size.height
 
-                // Radial Dot Grid with #27272A (24dp spacing)
+                // Precision Blueprint Graph Grid (Minor + Major coordinate lines & crosshairs)
                 if (isGridVisible) {
-                    val dotSpacing = with(density) { 24.dp.toPx() } * scale
-                    if (dotSpacing > 8f) {
-                        val startX = (panOffset.x % dotSpacing + dotSpacing) % dotSpacing
-                        val startY = (panOffset.y % dotSpacing + dotSpacing) % dotSpacing
-                        val dotColor = Color(0xFF27272A)
-                        val dotRadius = (1.2f * scale).coerceIn(0.8f, 2.4f)
+                    val minorStep = 24.dp.toPx() * scale
+                    if (minorStep > 8f) {
+                        val majorStep = minorStep * 4
+                        val minorLineColor = if (isDark) Color(0xFF1E293B).copy(alpha = 0.55f) else Color(0xFFE2E8F0)
+                        val majorLineColor = if (isDark) Color(0xFF38BDF8).copy(alpha = 0.22f) else Color(0xFF0284C7).copy(alpha = 0.22f)
+                        val crosshairColor = if (isDark) Color(0xFF38BDF8).copy(alpha = 0.45f) else Color(0xFF0284C7).copy(alpha = 0.4f)
 
+                        // Vertical grid lines
+                        val startX = (panOffset.x % minorStep + minorStep) % minorStep
                         var x = startX
                         while (x < canvasWidth) {
-                            var y = startY
-                            while (y < canvasHeight) {
-                                drawCircle(
-                                    color = dotColor,
-                                    radius = dotRadius,
-                                    center = Offset(x, y)
-                                )
-                                y += dotSpacing
+                            val relX = (x - panOffset.x) % majorStep
+                            val isMajor = Math.abs(relX) < 1.5f || Math.abs(relX - majorStep) < 1.5f
+                            drawLine(
+                                color = if (isMajor) majorLineColor else minorLineColor,
+                                start = Offset(x, 0f),
+                                end = Offset(x, canvasHeight),
+                                strokeWidth = if (isMajor) 1.2f else 0.8f
+                            )
+                            x += minorStep
+                        }
+
+                        // Horizontal grid lines
+                        val startY = (panOffset.y % minorStep + minorStep) % minorStep
+                        var y = startY
+                        while (y < canvasHeight) {
+                            val relY = (y - panOffset.y) % majorStep
+                            val isMajor = Math.abs(relY) < 1.5f || Math.abs(relY - majorStep) < 1.5f
+                            drawLine(
+                                color = if (isMajor) majorLineColor else minorLineColor,
+                                start = Offset(0f, y),
+                                end = Offset(canvasWidth, y),
+                                strokeWidth = if (isMajor) 1.2f else 0.8f
+                            )
+                            y += minorStep
+                        }
+
+                        // Precision Crosshairs at Major Grid Intersections
+                        val startMajorX = (panOffset.x % majorStep + majorStep) % majorStep
+                        val startMajorY = (panOffset.y % majorStep + majorStep) % majorStep
+                        val crossArm = 4.5f
+                        var mx = startMajorX
+                        while (mx < canvasWidth) {
+                            var my = startMajorY
+                            while (my < canvasHeight) {
+                                drawLine(crosshairColor, Offset(mx - crossArm, my), Offset(mx + crossArm, my), strokeWidth = 1.2f)
+                                drawLine(crosshairColor, Offset(mx, my - crossArm), Offset(mx, my + crossArm), strokeWidth = 1.2f)
+                                my += majorStep
                             }
-                            x += dotSpacing
+                            mx += majorStep
                         }
                     }
                 }

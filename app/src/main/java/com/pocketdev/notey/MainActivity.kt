@@ -12,7 +12,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -192,8 +192,13 @@ fun NoteyApp(
     AnimatedContent(
         targetState = screenState,
         transitionSpec = {
-            if (animDuration == 0) {
+            if (!settings.animationsEnabled || settings.reduceMotion || settings.animationSpeed == AnimationSpeed.INSTANT) {
                 EnterTransition.None togetherWith ExitTransition.None
+            } else if (settings.animationSpeed == AnimationSpeed.SPRING) {
+                (fadeIn(animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)) +
+                        scaleIn(initialScale = 0.96f, animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow))) togetherWith
+                        (fadeOut(animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)) +
+                                scaleOut(targetScale = 1.02f, animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)))
             } else {
                 fadeIn(animationSpec = tween(animDuration)) togetherWith
                         fadeOut(animationSpec = tween(animDuration))
@@ -2567,27 +2572,159 @@ fun NoteEditorView(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    val isBold = remember(bodyTextFieldValue) { RichStyleController.isBoldActive(bodyTextFieldValue) }
+                    val isItalic = remember(bodyTextFieldValue) { RichStyleController.isItalicActive(bodyTextFieldValue) }
+                    val isHeading = remember(bodyTextFieldValue) { RichStyleController.isHeadingActive(bodyTextFieldValue) }
+                    val isList = remember(bodyTextFieldValue) { RichStyleController.isListActive(bodyTextFieldValue) }
+                    val isChecklistStyle = remember(bodyTextFieldValue) { RichStyleController.isChecklistActive(bodyTextFieldValue) }
+                    val isCode = remember(bodyTextFieldValue) { RichStyleController.isCodeActive(bodyTextFieldValue) }
+
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = { insertMarkdown("**", "**") }, modifier = Modifier.size(34.dp)) {
-                            Icon(NoteyIcons.Bold, contentDescription = "Bold", tint = NoteySurfaces.TextPrimary, modifier = Modifier.size(16.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isBold) accentColor.copy(alpha = 0.25f) else Color.Transparent,
+                            border = if (isBold) androidx.compose.foundation.BorderStroke(1.dp, accentColor) else null,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clickable {
+                                    if (isChecklist) {
+                                        isChecklist = false
+                                        bodyTextFieldValue = TextFieldValue(tasks.joinToString("\n") { (if (it.isDone) "- [x] " else "- [ ] ") + it.text })
+                                    }
+                                    bodyTextFieldValue = RichStyleController.toggleBold(bodyTextFieldValue)
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    NoteyIcons.Bold,
+                                    contentDescription = "Bold",
+                                    tint = if (isBold) accentColor else NoteySurfaces.TextPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
-                        IconButton(onClick = { insertMarkdown("*", "*") }, modifier = Modifier.size(34.dp)) {
-                            Icon(NoteyIcons.Italic, contentDescription = "Italic", tint = NoteySurfaces.TextPrimary, modifier = Modifier.size(16.dp))
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isItalic) accentColor.copy(alpha = 0.25f) else Color.Transparent,
+                            border = if (isItalic) androidx.compose.foundation.BorderStroke(1.dp, accentColor) else null,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clickable {
+                                    if (isChecklist) {
+                                        isChecklist = false
+                                        bodyTextFieldValue = TextFieldValue(tasks.joinToString("\n") { (if (it.isDone) "- [x] " else "- [ ] ") + it.text })
+                                    }
+                                    bodyTextFieldValue = RichStyleController.toggleItalic(bodyTextFieldValue)
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    NoteyIcons.Italic,
+                                    contentDescription = "Italic",
+                                    tint = if (isItalic) accentColor else NoteySurfaces.TextPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
-                        IconButton(onClick = { insertMarkdown("### ") }, modifier = Modifier.size(34.dp)) {
-                            Icon(NoteyIcons.Heading, contentDescription = "Heading", tint = NoteySurfaces.TextPrimary, modifier = Modifier.size(16.dp))
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isHeading) accentColor.copy(alpha = 0.25f) else Color.Transparent,
+                            border = if (isHeading) androidx.compose.foundation.BorderStroke(1.dp, accentColor) else null,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clickable {
+                                    if (isChecklist) {
+                                        isChecklist = false
+                                        bodyTextFieldValue = TextFieldValue(tasks.joinToString("\n") { (if (it.isDone) "- [x] " else "- [ ] ") + it.text })
+                                    }
+                                    bodyTextFieldValue = RichStyleController.toggleHeading(bodyTextFieldValue)
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    NoteyIcons.Heading,
+                                    contentDescription = "Heading",
+                                    tint = if (isHeading) accentColor else NoteySurfaces.TextPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
-                        IconButton(onClick = { insertMarkdown("- ") }, modifier = Modifier.size(34.dp)) {
-                            Icon(NoteyIcons.BulletList, contentDescription = "Bullet List", tint = NoteySurfaces.TextPrimary, modifier = Modifier.size(16.dp))
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isList) accentColor.copy(alpha = 0.25f) else Color.Transparent,
+                            border = if (isList) androidx.compose.foundation.BorderStroke(1.dp, accentColor) else null,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clickable {
+                                    if (isChecklist) {
+                                        isChecklist = false
+                                        bodyTextFieldValue = TextFieldValue(tasks.joinToString("\n") { (if (it.isDone) "- [x] " else "- [ ] ") + it.text })
+                                    }
+                                    bodyTextFieldValue = RichStyleController.toggleList(bodyTextFieldValue)
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    NoteyIcons.BulletList,
+                                    contentDescription = "Bullet List",
+                                    tint = if (isList) accentColor else NoteySurfaces.TextPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
-                        IconButton(onClick = { insertMarkdown("- [ ] ") }, modifier = Modifier.size(34.dp)) {
-                            Icon(NoteyIcons.TaskCheck, contentDescription = "Task Checkbox", tint = NoteySurfaces.TextPrimary, modifier = Modifier.size(16.dp))
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isChecklistStyle) accentColor.copy(alpha = 0.25f) else Color.Transparent,
+                            border = if (isChecklistStyle) androidx.compose.foundation.BorderStroke(1.dp, accentColor) else null,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clickable {
+                                    if (isChecklist) {
+                                        isChecklist = false
+                                        bodyTextFieldValue = TextFieldValue(tasks.joinToString("\n") { (if (it.isDone) "- [x] " else "- [ ] ") + it.text })
+                                    }
+                                    bodyTextFieldValue = RichStyleController.toggleChecklist(bodyTextFieldValue)
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    NoteyIcons.TaskCheck,
+                                    contentDescription = "Task Checkbox",
+                                    tint = if (isChecklistStyle) accentColor else NoteySurfaces.TextPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
-                        IconButton(onClick = { insertMarkdown("\n```\n", "\n```\n") }, modifier = Modifier.size(34.dp)) {
-                            Icon(NoteyIcons.Code, contentDescription = "Code Block", tint = NoteySurfaces.TextPrimary, modifier = Modifier.size(16.dp))
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isCode) accentColor.copy(alpha = 0.25f) else Color.Transparent,
+                            border = if (isCode) androidx.compose.foundation.BorderStroke(1.dp, accentColor) else null,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clickable {
+                                    if (isChecklist) {
+                                        isChecklist = false
+                                        bodyTextFieldValue = TextFieldValue(tasks.joinToString("\n") { (if (it.isDone) "- [x] " else "- [ ] ") + it.text })
+                                    }
+                                    bodyTextFieldValue = RichStyleController.toggleCode(bodyTextFieldValue)
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    NoteyIcons.Code,
+                                    contentDescription = "Code Block",
+                                    tint = if (isCode) accentColor else NoteySurfaces.TextPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
 
@@ -2814,7 +2951,7 @@ fun NoteEditorView(
                     }
                 }
             } else {
-                // Plain Text Mode (Borderless auto-expanding)
+                // Plain Text Mode (Borderless auto-expanding with Rich Visual Transformation)
                 BasicTextField(
                     value = bodyTextFieldValue,
                     onValueChange = { bodyTextFieldValue = it },
@@ -2823,6 +2960,7 @@ fun NoteEditorView(
                         fontSize = 16.sp,
                         lineHeight = 24.sp
                     ),
+                    visualTransformation = remember(accentColor) { RichMarkdownVisualTransformation(accentColor) },
                     cursorBrush = SolidColor(accentColor),
                     modifier = Modifier
                         .fillMaxWidth()

@@ -303,23 +303,36 @@ fun ExportShareBottomSheet(
         return targetFile
     }
 
+    fun triggerSaveToDevice(format: ExportFormat) {
+        try {
+            isGenerating = true
+            val file = generateExportFile(format)
+            val result = FileEngine.copyFileToDownloads(context, file, format.mimeType)
+            result.onSuccess { path ->
+                Toast.makeText(context, "Saved to $path", Toast.LENGTH_LONG).show()
+                onSavedSuccessfully?.invoke()
+                onDismiss()
+            }.onFailure { err ->
+                Toast.makeText(context, "Save failed: ${err.message}", Toast.LENGTH_LONG).show()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, "Save error: ${e.message}", Toast.LENGTH_LONG).show()
+        } finally {
+            isGenerating = false
+        }
+    }
+
     fun triggerNativeShare(format: ExportFormat) {
         try {
             isGenerating = true
             val file = generateExportFile(format)
-            val uri = FileProvider.getUriForFile(context, "com.pocketdev.notey.fileprovider", file)
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = format.mimeType
-                putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_SUBJECT, title)
-                putExtra(Intent.EXTRA_TEXT, "Exported '$title' from Notey Workspace")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val shared = FileEngine.shareFile(context, file, format.mimeType, title)
+            if (shared) {
+                onSavedSuccessfully?.invoke()
+                onDismiss()
             }
-            context.startActivity(Intent.createChooser(intent, "Share via"))
-            onSavedSuccessfully?.invoke()
-            onDismiss()
         } catch (e: Exception) {
-            Toast.makeText(context, "Export error: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Share error: ${e.message}", Toast.LENGTH_LONG).show()
         } finally {
             isGenerating = false
         }
@@ -444,22 +457,15 @@ fun ExportShareBottomSheet(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 OutlinedButton(
-                    onClick = {
-                        try {
-                            val f = generateExportFile(selectedFormat)
-                            Toast.makeText(context, "Exported to ${f.name}", Toast.LENGTH_SHORT).show()
-                            onSavedSuccessfully?.invoke()
-                            onDismiss()
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                        }
-                    },
+                    onClick = { triggerSaveToDevice(selectedFormat) },
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = NoteySurfaces.TextPrimary),
                     border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorderStrong),
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("Save to Vault", fontWeight = FontWeight.SemiBold)
+                    Icon(NoteyIcons.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Save to Device", fontWeight = FontWeight.SemiBold)
                 }
 
                 Button(
@@ -469,11 +475,11 @@ fun ExportShareBottomSheet(
                         containerColor = Color(0xFF38BDF8),
                         contentColor = Color(0xFF000000)
                     ),
-                    modifier = Modifier.weight(1.3f)
+                    modifier = Modifier.weight(1.2f)
                 ) {
-                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(NoteyIcons.Share, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Native Share...", fontWeight = FontWeight.Bold)
+                    Text("Share File", fontWeight = FontWeight.Bold)
                 }
             }
         }

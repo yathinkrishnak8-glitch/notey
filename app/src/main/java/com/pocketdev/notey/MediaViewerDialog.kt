@@ -7,6 +7,7 @@ import android.media.MediaPlayer
 import android.net.Uri
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.Toast
 import android.widget.VideoView
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -79,20 +80,16 @@ fun MediaViewerDialog(
 
     fun shareMediaFile() {
         if (!file.exists()) return
-        try {
-            val contentUri: Uri = FileProvider.getUriForFile(
-                context,
-                "com.pocketdev.notey.fileprovider",
-                file
-            )
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = if (isVideo) "video/*" else "image/*"
-                putExtra(Intent.EXTRA_STREAM, contentUri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(Intent.createChooser(shareIntent, "Share Media"))
-        } catch (_: Exception) {
-            // Silently fallback if sharing fails
+        FileEngine.shareFile(context, file, if (isVideo) "video/*" else "image/*", displayTitle)
+    }
+
+    fun saveMediaToDevice() {
+        if (!file.exists()) return
+        val mime = if (isVideo) "video/*" else "image/*"
+        FileEngine.copyFileToDownloads(context, file, mime).onSuccess { path ->
+            Toast.makeText(context, "Saved to $path", Toast.LENGTH_SHORT).show()
+        }.onFailure { err ->
+            Toast.makeText(context, "Save failed: ${err.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -178,13 +175,29 @@ fun MediaViewerDialog(
                     Spacer(modifier = Modifier.width(8.dp))
 
                     IconButton(
+                        onClick = { saveMediaToDevice() },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(NoteySurfaces.Surface2, CircleShape)
+                    ) {
+                        Icon(
+                            NoteyIcons.Download,
+                            contentDescription = "Save to Device",
+                            tint = Color(0xFF38BDF8),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    IconButton(
                         onClick = { shareMediaFile() },
                         modifier = Modifier
                             .size(36.dp)
                             .background(NoteySurfaces.Surface2, CircleShape)
                     ) {
                         Icon(
-                            Icons.Default.Share,
+                            NoteyIcons.Share,
                             contentDescription = "Share",
                             tint = Color(0xFFEDEDED),
                             modifier = Modifier.size(18.dp)
