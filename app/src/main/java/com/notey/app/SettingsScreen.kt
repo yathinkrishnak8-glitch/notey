@@ -1,4 +1,4 @@
-package com.pocketdev.notey
+package com.notey.app
 
 import android.content.Context
 import android.content.Intent
@@ -478,43 +478,55 @@ fun AppearanceSettingsView(
     ) {
         Text("Foundation Surface Mode", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = NoteySurfaces.TextPrimary)
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            listOf(
-                Triple(ThemeMode.AMOLED_BLACK, "AMOLED Black", NoteyIcons.OledBlack),
-                Triple(ThemeMode.ZINC_GREY, "Zinc Grey", NoteyIcons.Moon),
-                Triple(ThemeMode.MONET_DYNAMIC, "Monet Dynamic", NoteyIcons.Sun)
-            ).forEach { (mode, label, icon) ->
-                val isSel = settings.themeMode == mode
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (isSel) NoteySurfaces.Surface3 else NoteySurfaces.Surface1,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        if (isSel) MaterialTheme.colorScheme.primary else NoteySurfaces.HairlineBorder
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable { onUpdate(settings.copy(themeMode = mode)) }
+        val themeOptions = listOf(
+            Triple(ThemeMode.AMOLED_BLACK, "AMOLED Black", NoteyIcons.OledBlack),
+            Triple(ThemeMode.ZINC_GREY, "Zinc Grey", NoteyIcons.Moon),
+            Triple(ThemeMode.MONET_DYNAMIC, "Monet Dynamic", NoteyIcons.Sun),
+            Triple(ThemeMode.DYNAMIC_LIQUID_GLASS, "Liquid Glass", NoteyIcons.Workflow)
+        )
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            themeOptions.chunked(2).forEach { rowItems ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(icon, contentDescription = null, tint = if (isSel) MaterialTheme.colorScheme.primary else NoteySurfaces.TextSecondary, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = label,
-                            style = TextStyle(
-                                fontFamily = FontFamily.SansSerif,
-                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = 11.sp,
-                                color = if (isSel) NoteySurfaces.TextPrimary else NoteySurfaces.TextSecondary
+                    rowItems.forEach { (mode, label, icon) ->
+                        val isSel = settings.themeMode == mode
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSel) NoteySurfaces.Surface3 else NoteySurfaces.Surface1,
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isSel) MaterialTheme.colorScheme.primary else NoteySurfaces.HairlineBorder
                             ),
-                            maxLines = 1
-                        )
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onUpdate(settings.copy(themeMode = mode)) }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    icon,
+                                    contentDescription = null,
+                                    tint = if (isSel) MaterialTheme.colorScheme.primary else NoteySurfaces.TextSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = label,
+                                    style = TextStyle(
+                                        fontFamily = FontFamily.SansSerif,
+                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                        fontSize = 12.sp,
+                                        color = if (isSel) NoteySurfaces.TextPrimary else NoteySurfaces.TextSecondary
+                                    ),
+                                    maxLines = 1
+                                )
+                            }
+                        }
                     }
                 }
             }

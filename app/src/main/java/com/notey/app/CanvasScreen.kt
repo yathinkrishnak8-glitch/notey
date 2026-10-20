@@ -1,4 +1,4 @@
-package com.pocketdev.notey
+package com.notey.app
 
 import android.content.Context
 import android.content.Intent
@@ -792,6 +792,7 @@ fun CanvasWorkspaceScreen(
     var isSnapToGrid by remember { mutableStateOf(settings.canvasSnapToGrid) }
     var isDetailLocked by remember { mutableStateOf(false) }
     var showExportSheet by remember { mutableStateOf(false) }
+    var showLinkNoteDialog by remember { mutableStateOf(false) }
 
     // Device Image / Logo Upload Picker
     val imagePickerLauncher = rememberLauncherForActivityResult(
@@ -993,26 +994,34 @@ fun CanvasWorkspaceScreen(
                         .offset { IntOffset(screenX.roundToInt(), screenY.roundToInt()) }
                         .size(screenWidthDp, screenHeightDp)
                         .pointerInput(node.id, scale, isSnapToGrid) {
+                            var dragAccumX = node.x
+                            var dragAccumY = node.y
                             detectDragGestures(
                                 onDragStart = {
                                     selectedNodeId = node.id
                                     pushUndo()
+                                    dragAccumX = node.x
+                                    dragAccumY = node.y
                                 },
-                                onDragEnd = { canvasStore.save(currentDoc) },
+                                onDragEnd = {
+                                    if (isSnapToGrid) {
+                                        val snappedX = (round(dragAccumX / 24f) * 24f)
+                                        val snappedY = (round(dragAccumY / 24f) * 24f)
+                                        val updated = currentDoc.nodes.map {
+                                            if (it.id == node.id) it.copy(x = snappedX, y = snappedY) else it
+                                        }
+                                        currentDoc = currentDoc.copy(nodes = updated)
+                                    }
+                                    canvasStore.save(currentDoc)
+                                },
                                 onDrag = { change, dragAmount ->
                                     change.consume()
-                                    val dx = dragAmount.x / scale
-                                    val dy = dragAmount.y / scale
+                                    dragAccumX += dragAmount.x / scale
+                                    dragAccumY += dragAmount.y / scale
+                                    val currentTargetX = if (isSnapToGrid) (round(dragAccumX / 24f) * 24f) else dragAccumX
+                                    val currentTargetY = if (isSnapToGrid) (round(dragAccumY / 24f) * 24f) else dragAccumY
                                     val updated = currentDoc.nodes.map {
-                                        if (it.id == node.id) {
-                                            var newX = it.x + dx
-                                            var newY = it.y + dy
-                                            if (isSnapToGrid) {
-                                                newX = (round(newX / 16f) * 16f)
-                                                newY = (round(newY / 16f) * 16f)
-                                            }
-                                            it.copy(x = newX, y = newY)
-                                        } else it
+                                        if (it.id == node.id) it.copy(x = currentTargetX, y = currentTargetY) else it
                                     }
                                     currentDoc = currentDoc.copy(nodes = updated)
                                 }
@@ -1481,13 +1490,86 @@ fun CanvasWorkspaceScreen(
             onPickMediaNode = {
                 imagePickerLauncher.launch(arrayOf("image/*", "video/*"))
             },
+            onLinkNote = {
+                showLinkNoteDialog = true
+            },
             onAutoLayout = {
                 val tidied = autoLayoutCanvasNodes(currentDoc.nodes, currentDoc.connectors)
                 commitDocChange(currentDoc.copy(nodes = tidied))
-                Toast.makeText(context, "Arranged nodes in hierarchical tree", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Arranged nodes in clean balanced layout", Toast.LENGTH_SHORT).show()
             },
             onExportDiagram = {
                 showExportSheet = true
+            }
+        )
+    }
+
+    // Link Note from Vault Dialog
+    if (showLinkNoteDialog && noteStore != null) {
+        val allNotes = remember { noteStore.loadAll() }
+        AlertDialog(
+            onDismissRequest = { showLinkNoteDialog = false },
+            title = { Text("Link Note from Vault", color = NoteySurfaces.TextPrimary) },
+            text = {
+                if (allNotes.isEmpty()) {
+                    Text("No notes found in vault.", color = NoteySurfaces.TextSecondary)
+                } else {
+                    androidx.compose.foundation.lazy.LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 280.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(allNotes) { n ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = NoteySurfaces.Surface2,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        val spawnX = (400f - panOffset.x) / scale
+                                        val spawnY = (400f - panOffset.y) / scale
+                                        val newNode = CanvasNode(
+                                            type = CanvasNodeType.NOTE,
+                                            noteId = n.id,
+                                            title = n.title.ifBlank { "Untitled Note" },
+                                            content = n.body.take(120),
+                                            x = spawnX,
+                                            y = spawnY,
+                                            width = 180f,
+                                            height = 100f,
+                                            colorIndex = n.colorIndex
+                                        )
+                                        commitDocChange(currentDoc.copy(nodes = currentDoc.nodes + newNode))
+                                        selectedNodeId = newNode.id
+                                        showLinkNoteDialog = false
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(NoteyIcons.Document, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = n.title.ifBlank { "Untitled Note" },
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = NoteySurfaces.TextPrimary,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showLinkNoteDialog = false }) {
+                    Text("Cancel", color = NoteySurfaces.TextSecondary)
+                }
             }
         )
     }

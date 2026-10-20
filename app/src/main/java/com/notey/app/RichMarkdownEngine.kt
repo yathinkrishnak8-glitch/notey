@@ -1,4 +1,4 @@
-package com.pocketdev.notey
+package com.notey.app
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString

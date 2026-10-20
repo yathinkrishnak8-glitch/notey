@@ -1,4 +1,4 @@
-package com.pocketdev.notey
+package com.notey.app
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background

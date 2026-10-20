@@ -1,12 +1,11 @@
-package com.pocketdev.notey
+package com.notey.app
 
 import android.content.Context
-import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.widget.MediaController
 import android.widget.Toast
-import android.widget.VideoView
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -32,9 +31,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.core.content.FileProvider
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,10 +45,46 @@ fun LibraryScreen(
     var selectedFilter by remember { mutableStateOf("All") }
     var activePreviewAttachment by remember { mutableStateOf<Attachment?>(null) }
 
+    // Direct Vault File Import Launcher
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val att = FileEngine.copyUriToVault(context, uri)
+            if (att != null) {
+                val existingVaultNote = notes.firstOrNull { it.folder.equals("Vault", ignoreCase = true) }
+                if (existingVaultNote != null) {
+                    noteStore.save(existingVaultNote.copy(attachments = existingVaultNote.attachments + att))
+                } else {
+                    noteStore.save(
+                        Note(
+                            id = System.currentTimeMillis(),
+                            title = "Vault Assets",
+                            body = "Repository of files and media imported into your local device vault.",
+                            folder = "Vault",
+                            attachments = listOf(att)
+                        )
+                    )
+                }
+                notes = noteStore.loadAll()
+                Toast.makeText(context, "Imported '${att.displayName}' into Vault", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "Failed to import file into Vault", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     val allAttachments = remember(notes) {
         notes.flatMap { note ->
             note.attachments.map { att -> Pair(att, note) }
         }
+    }
+
+    val totalStorageBytes = remember(allAttachments) {
+        allAttachments.sumOf { it.first.sizeBytes }
+    }
+    val totalSizeFormatted = remember(totalStorageBytes) {
+        FileEngine.formatFileSize(totalStorageBytes)
     }
 
     val filterOptions = listOf("All", "Images", "Diagrams", "Docs")
@@ -75,7 +107,7 @@ fun LibraryScreen(
             .fillMaxSize()
             .background(NoteySurfaces.Surface0)
     ) {
-        // Vault Header
+        // Vault Header & Storage Management Bar
         Surface(
             color = NoteySurfaces.Surface1,
             border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
@@ -91,30 +123,46 @@ fun LibraryScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 NoteyIcons.Vault,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Vault / Asset Manager",
+                                text = "Asset Vault",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = NoteySurfaces.TextPrimary
                             )
                         }
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "${allAttachments.size} indexed assets in local vault",
+                            text = "${allAttachments.size} assets • $totalSizeFormatted storage",
                             style = TextStyle(
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 11.sp,
                                 color = NoteySurfaces.TextMuted
                             )
                         )
+                    }
+
+                    // "+ Import" action button
+                    Button(
+                        onClick = { importLauncher.launch(arrayOf("*/*")) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF38BDF8),
+                            contentColor = Color.Black
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Import", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
 
@@ -153,7 +201,7 @@ fun LibraryScreen(
                             decorationBox = { innerTextField ->
                                 if (searchQuery.isEmpty()) {
                                     Text(
-                                        "Filter by asset name or extension...",
+                                        "Search assets by name or format...",
                                         style = TextStyle(
                                             color = NoteySurfaces.TextMuted,
                                             fontSize = 13.sp
@@ -226,23 +274,34 @@ fun LibraryScreen(
                         NoteyIcons.Vault,
                         contentDescription = null,
                         tint = NoteySurfaces.TextMuted,
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(44.dp)
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
                     Text(
-                        text = "No assets found in vault",
+                        text = "Vault is Empty",
                         style = MaterialTheme.typography.titleMedium,
-                        color = NoteySurfaces.TextSecondary
+                        fontWeight = FontWeight.Bold,
+                        color = NoteySurfaces.TextPrimary
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Attached files from notes and canvases appear here",
+                        text = "Import files directly or attach media to notes",
                         style = TextStyle(
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
+                            fontFamily = FontFamily.SansSerif,
+                            fontSize = 12.sp,
                             color = NoteySurfaces.TextMuted
                         )
                     )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedButton(
+                        onClick = { importLauncher.launch(arrayOf("*/*")) },
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF38BDF8))
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Import First File")
+                    }
                 }
             }
         } else {
@@ -254,18 +313,43 @@ fun LibraryScreen(
                 modifier = Modifier.fillMaxSize()
             ) {
                 items(filteredList, key = { it.first.id }) { (att, parentNote) ->
+                    val file = File(att.filePath)
                     VaultAssetCard(
                         attachment = att,
-                        parentNoteTitle = parentNote.title.ifBlank { "Untitled Note" },
-                        onClick = { activePreviewAttachment = att },
+                        parentNoteTitle = parentNote.title.ifBlank { "Vault Item" },
+                        onClick = {
+                            if (att.type == AttachmentType.IMAGE || att.type == AttachmentType.VIDEO) {
+                                activePreviewAttachment = att
+                            } else {
+                                // Direct share sheet for documents/files
+                                if (file.exists()) {
+                                    FileEngine.shareFile(context, file, att.mimeType, att.displayName)
+                                }
+                            }
+                        },
                         onOpenParent = {
                             if (onOpenNote != null) onOpenNote(parentNote.id)
                         },
+                        onSaveToDevice = {
+                            if (file.exists()) {
+                                FileEngine.copyFileToDownloads(context, file, att.mimeType).onSuccess { path ->
+                                    Toast.makeText(context, "Saved to $path", Toast.LENGTH_SHORT).show()
+                                }.onFailure { err ->
+                                    Toast.makeText(context, "Save error: ${err.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        onShare = {
+                            if (file.exists()) {
+                                FileEngine.shareFile(context, file, att.mimeType, att.displayName)
+                            }
+                        },
                         onDelete = {
                             val updatedAtts = parentNote.attachments.filter { it.id != att.id }
-                            try { File(att.filePath).delete() } catch (_: Exception) {}
+                            try { file.delete() } catch (_: Exception) {}
                             noteStore.save(parentNote.copy(attachments = updatedAtts))
                             notes = noteStore.loadAll()
+                            Toast.makeText(context, "Deleted from Vault", Toast.LENGTH_SHORT).show()
                         }
                     )
                 }
@@ -290,16 +374,14 @@ fun VaultAssetCard(
     parentNoteTitle: String,
     onClick: () -> Unit,
     onOpenParent: () -> Unit,
+    onSaveToDevice: () -> Unit,
+    onShare: () -> Unit,
     onDelete: () -> Unit
 ) {
-    val sizeStr = if (attachment.sizeBytes > 1024 * 1024) {
-        "%.1f MB".format(attachment.sizeBytes / (1024.0 * 1024.0))
-    } else {
-        "${attachment.sizeBytes / 1024} KB"
-    }
+    val sizeStr = FileEngine.formatFileSize(attachment.sizeBytes)
 
     Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(10.dp),
         color = NoteySurfaces.Surface1,
         border = androidx.compose.foundation.BorderStroke(1.dp, NoteySurfaces.HairlineBorder),
         modifier = Modifier
@@ -311,8 +393,8 @@ fun VaultAssetCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(84.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .height(90.dp)
+                    .clip(RoundedCornerShape(8.dp))
                     .background(NoteySurfaces.Surface2),
                 contentAlignment = Alignment.Center
             ) {
@@ -335,14 +417,14 @@ fun VaultAssetCard(
                         Icons.Default.PlayArrow,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(36.dp)
                     )
                 } else {
                     Icon(
                         NoteyIcons.Document,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(32.dp)
                     )
                 }
             }
@@ -369,44 +451,77 @@ fun VaultAssetCard(
                 )
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-            // Backlink to Parent
+            // Action Toolbar (Save to Downloads, Share, Delete)
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(4.dp))
-                    .clickable(onClick = onOpenParent),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    NoteyIcons.Paperclip,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
-                    modifier = Modifier.size(12.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = parentNoteTitle,
-                    style = TextStyle(
-                        fontFamily = FontFamily.SansSerif,
-                        fontSize = 10.sp,
-                        color = NoteySurfaces.TextSecondary
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.size(20.dp)
+                // Backlink to Parent Note
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable(onClick = onOpenParent),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                        modifier = Modifier.size(14.dp)
+                        NoteyIcons.Paperclip,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                        modifier = Modifier.size(11.dp)
                     )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text(
+                        text = parentNoteTitle,
+                        style = TextStyle(
+                            fontFamily = FontFamily.SansSerif,
+                            fontSize = 10.sp,
+                            color = NoteySurfaces.TextSecondary
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    IconButton(
+                        onClick = onSaveToDevice,
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            NoteyIcons.Download,
+                            contentDescription = "Save to Device",
+                            tint = Color(0xFF38BDF8),
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onShare,
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            NoteyIcons.Share,
+                            contentDescription = "Share",
+                            tint = NoteySurfaces.TextSecondary,
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
                 }
             }
         }

@@ -1,4 +1,4 @@
-package com.pocketdev.notey
+package com.notey.app
 
 import android.content.ClipData
 import android.content.ContentValues
@@ -28,7 +28,7 @@ import java.util.UUID
  */
 object FileEngine {
 
-    private const val FILE_PROVIDER_AUTHORITY = "com.pocketdev.notey.fileprovider"
+    private const val FILE_PROVIDER_AUTHORITY = "com.notey.app.fileprovider"
     private const val NOTEY_PUBLIC_FOLDER = "Notey"
 
     /**

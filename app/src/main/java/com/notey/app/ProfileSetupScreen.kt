@@ -1,4 +1,4 @@
-package com.pocketdev.notey
+package com.notey.app
 
 import android.graphics.BitmapFactory
 import android.net.Uri

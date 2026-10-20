@@ -1,31 +1,83 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- 72x72dp squircle container (Surface 1 #09090B, 1px border) -->
-    <path
-        android:fillColor="#09090B"
-        android:strokeColor="#26FFFFFF"
-        android:strokeWidth="1.2"
-        android:pathData="M36,18 h36 a18,18 0 0 1 18,18 v36 a18,18 0 0 1 -18,18 h-36 a18,18 0 0 1 -18,-18 v-36 a18,18 0 0 1 18,-18 z" />
 
-    <!-- Stepped orthogonal line: (40, 40) -> (60, 40) -> (60, 52) -->
+    <!-- Translucent Dark Glass Squircle Shield -->
     <path
-        android:strokeColor="#38BDF8"
-        android:strokeWidth="2.5"
+        android:fillColor="#E60D1322"
+        android:strokeColor="#3338BDF8"
+        android:strokeWidth="1.5"
+        android:pathData="M34,22 h40 a14,14 0 0 1 14,14 v40 a14,14 0 0 1 -14,14 h-40 a14,14 0 0 1 -14,-14 v-40 a14,14 0 0 1 14,-14 z" />
+
+    <!-- Specular Rim Light along Top Edge -->
+    <path
+        android:strokeColor="#40FFFFFF"
+        android:strokeWidth="1"
         android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M40,40 L60,40 L60,52" />
+        android:pathData="M36,23 h36" />
 
-    <!-- Origin circle at (40, 40) with radius 4.5 -->
+    <!-- Isometric Glowing "N" Monogram - Left Stem (Electric Cyan Gradient) -->
     <path
-        android:fillColor="#38BDF8"
-        android:pathData="M40,35.5 a4.5,4.5 0 1 0 0.001,0 Z" />
+        android:pathData="M34,36 L43,30 L43,72 L34,78 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="34"
+                android:startY="30"
+                android:endX="43"
+                android:endY="78"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#38BDF8" />
+                <item android:offset="1.0" android:color="#0284C7" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-    <!-- Square terminal at (60, 52) with size 7 -->
+    <!-- Isometric Glowing "N" Monogram - Diagonal Dynamic Bridge (Violet/Purple Gradient) -->
     <path
-        android:fillColor="#EDEDED"
-        android:pathData="M56.5,48.5 h7 v7 h-7 z" />
+        android:pathData="M43,30 L74,72 L65,78 L34,36 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="43"
+                android:startY="30"
+                android:endX="65"
+                android:endY="78"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#C084FC" />
+                <item android:offset="0.5" android:color="#818CF8" />
+                <item android:offset="1.0" android:color="#4F46E5" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Isometric Glowing "N" Monogram - Right Stem (Mint/Cyan Gradient) -->
+    <path
+        android:pathData="M65,36 L74,30 L74,72 L65,78 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="65"
+                android:startY="30"
+                android:endX="74"
+                android:endY="78"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#34D399" />
+                <item android:offset="1.0" android:color="#0EA5E9" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Holographic Note Fold / Diamond Accent at Top Right -->
+    <path
+        android:pathData="M74,30 L80,36 L74,42 L68,36 Z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- Core Center Specular Sparkle -->
+    <path
+        android:strokeColor="#80FFFFFF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:pathData="M43,30 L65,78" />
 </vector>

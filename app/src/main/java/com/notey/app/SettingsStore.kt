@@ -1,4 +1,4 @@
-package com.pocketdev.notey
+package com.notey.app
 
 import android.content.Context
 import androidx.compose.ui.graphics.Color
@@ -6,7 +6,8 @@ import androidx.compose.ui.graphics.Color
 enum class ThemeMode(val label: String) {
     AMOLED_BLACK("AMOLED Black"),
     ZINC_GREY("Zinc Grey"),
-    MONET_DYNAMIC("Monet Dynamic")
+    MONET_DYNAMIC("Monet Dynamic"),
+    DYNAMIC_LIQUID_GLASS("Dynamic Liquid Glass")
 }
 
 enum class UIStyle {

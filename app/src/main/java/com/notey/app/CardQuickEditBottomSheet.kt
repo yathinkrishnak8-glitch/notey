@@ -1,4 +1,4 @@
-package com.pocketdev.notey
+package com.notey.app
 
 import android.net.Uri
 import androidx.activity.compose.BackHandler

@@ -1,4 +1,4 @@
-package com.pocketdev.notey
+package com.notey.app
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -125,6 +125,29 @@ fun createDynamicColorScheme(preset: ColorPreset): ColorScheme {
     return createAmoledColorScheme(preset)
 }
 
+fun createLiquidGlassColorScheme(preset: ColorPreset): ColorScheme {
+    return darkColorScheme(
+        primary = preset.primary,
+        onPrimary = getInvertedTextColor(preset.primary),
+        primaryContainer = Color(0x3338BDF8),
+        onPrimaryContainer = preset.primary,
+        secondary = preset.secondary,
+        onSecondary = getInvertedTextColor(preset.secondary),
+        secondaryContainer = Color(0x2E1E293B),
+        onSecondaryContainer = NoteySurfaces.TextPrimary,
+        tertiary = preset.tertiary,
+        onTertiary = Color.Black,
+        background = Color(0xFF030712), // Deep Void Midnight
+        onBackground = NoteySurfaces.TextPrimary,
+        surface = Color(0xFF0D1424), // Acrylic Translucent Glass Layer
+        onSurface = NoteySurfaces.TextPrimary,
+        surfaceVariant = Color(0xFF131D33), // Refractive Glass Surface
+        onSurfaceVariant = Color(0xFF94A3B8),
+        outline = Color(0x3338BDF8), // Specular Iridescent Border
+        outlineVariant = Color(0x26818CF8),
+    )
+}
+
 fun createNoteyShapes(style: UIStyle): Shapes {
     return if (style == UIStyle.ROUNDED) {
         Shapes(
@@ -225,6 +248,7 @@ fun NoteyTheme(
         ThemeMode.AMOLED_BLACK -> createAmoledColorScheme(preset)
         ThemeMode.ZINC_GREY -> createZincColorScheme(preset)
         ThemeMode.MONET_DYNAMIC -> createDynamicColorScheme(preset)
+        ThemeMode.DYNAMIC_LIQUID_GLASS -> createLiquidGlassColorScheme(preset)
     }
 
     val shapes = createNoteyShapes(settings.uiStyle)
